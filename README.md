@@ -11,7 +11,9 @@
 Supports **MCAP**, **ROS 1 bag**, **ROS 2 db3**, **HDF5**, and **BVH** files. Available as a standalone SPA (zero-install, runs at [rosview.com](https://rosview.com)) or as an embeddable npm package.
 
 <p align="center">
-  <video src="https://raw.githubusercontent.com/ioai-tech/rosview/refs/heads/main/docs/assets/rosview-demo.mp4" autoplay loop muted playsinline width="920"></video>
+  <a href="https://rosview.com">
+    <img src="docs/assets/rosview-demo.webp" alt="ROSView demo — Realman pick and place" width="920">
+  </a>
 </p>
 
 ---
