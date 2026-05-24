@@ -1,6 +1,6 @@
 {
   "name": "@ioai/rosview",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "High-performance robotics data visualization for MCAP, ROS bag, ROS2 db3, HDF5 and BVH — embeddable React component and standalone SPA",
   "keywords": [
     "ros",
@@ -108,7 +108,6 @@
     "@react-three/drei": "^10.0.0",
     "@react-three/fiber": "^9.0.0",
     "@types/cytoscape": "^3.21.9",
-    "@types/cytoscape-dagre": "^2.3.4",
     "@types/node": "^25.6.0",
     "@types/react": "^19.2.15",
     "@types/react-dom": "^19.2.3",
@@ -120,7 +119,6 @@
     "cmdk": "^1.1.1",
     "comlink": "^4.4.1",
     "cytoscape": "^3.33.2",
-    "cytoscape-dagre": "^2.5.0",
     "dockview": "^6.0.7",
     "dockview-core": "^6.0.7",
     "esbuild": "^0.28.0",

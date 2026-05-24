@@ -9,6 +9,7 @@
   "panels.topicGraph.defaultTitle": "トピックグラフ",
   "panels.align.defaultTitle": "整列",
   "panels.unavailable.defaultTitle": "利用不可",
+  "panels.urdfDebug.defaultTitle": "URDF デバッグ",
   "panels.jointStatePlot.fallback.missingHeaderStamp": "header.stamp がありません。receiveTime にフォールバックしました",
   "panels.jointStatePlot.fallback.missingCustomPath": "カスタムタイムスタンプパスが無効です。receiveTime にフォールバックしました",
   "panels.jointStatePlot.panorama.waitJointState": "JointState メッセージを待って関節数を決定しています…",

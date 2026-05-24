@@ -9,6 +9,7 @@
   "panels.topicGraph.defaultTitle": "话题图",
   "panels.align.defaultTitle": "对齐",
   "panels.unavailable.defaultTitle": "不可用",
+  "panels.urdfDebug.defaultTitle": "URDF 调试",
   "panels.jointStatePlot.fallback.missingHeaderStamp": "header.stamp 缺失，已回退到 receiveTime",
   "panels.jointStatePlot.fallback.missingCustomPath": "custom timestamp path 无效，已回退到 receiveTime",
   "panels.jointStatePlot.panorama.waitJointState": "等待 JointState 消息以确定关节数量…",

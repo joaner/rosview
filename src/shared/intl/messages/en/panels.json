@@ -9,6 +9,7 @@
   "panels.topicGraph.defaultTitle": "Topic Graph",
   "panels.align.defaultTitle": "Align",
   "panels.unavailable.defaultTitle": "Unavailable",
+  "panels.urdfDebug.defaultTitle": "URDF Debug",
   "panels.jointStatePlot.fallback.missingHeaderStamp": "header.stamp missing; fell back to receiveTime",
   "panels.jointStatePlot.fallback.missingCustomPath": "Custom timestamp path invalid; fell back to receiveTime",
   "panels.jointStatePlot.panorama.waitJointState": "Waiting for JointState messages to determine joint count…",
