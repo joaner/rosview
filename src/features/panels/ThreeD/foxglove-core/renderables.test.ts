@@ -231,3 +231,90 @@ describe('buildRobotRenderable mesh formats', () => {
     disposeRobotRenderable(model);
   });
 });
+
+function getFirstMeshRootRotation(model: Awaited<ReturnType<typeof buildRobotRenderable>>): number {
+  const frameEntry = model.frameObjects[0];
+  expect(frameEntry).toBeDefined();
+  const visualGroup = frameEntry!.object.children[0];
+  const meshRoot = visualGroup?.children[0];
+  expect(meshRoot).toBeDefined();
+  return meshRoot!.rotation.x;
+}
+
+describe('buildRobotRenderable meshUpAxis', () => {
+  const fetchMock = vi.fn();
+  const stlText = [
+    'solid test',
+    '  facet normal 0 0 0',
+    '    outer loop',
+    '      vertex 0 0 0',
+    '      vertex 1 0 0',
+    '      vertex 0 1 0',
+    '    endloop',
+    '  endfacet',
+    'endsolid test',
+  ].join('\n');
+
+  beforeEach(() => {
+    fetchMock.mockReset();
+    vi.stubGlobal('fetch', fetchMock);
+    const stlBuffer = new TextEncoder().encode(stlText).buffer;
+    fetchMock.mockResolvedValue({
+      ok: true,
+      arrayBuffer: async () => stlBuffer,
+      text: async () => stlText,
+    });
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  const meshUrdf = `<?xml version="1.0"?>
+<robot name="mesh_bot">
+  <link name="base">
+    <visual>
+      <geometry><mesh filename="package://robot/meshes/link.stl"/></geometry>
+    </visual>
+  </link>
+</robot>`;
+
+  it('applies rotateX(+π/2) for y_up (Foxglove default)', async () => {
+    const model = await buildRobotRenderable(meshUrdf, {
+      resolveMeshUrl: () => 'blob:https://local/link.stl',
+      warn: () => {},
+      meshUpAxis: 'y_up',
+    });
+    expect(getFirstMeshRootRotation(model)).toBeCloseTo(Math.PI / 2, 5);
+    disposeRobotRenderable(model);
+  });
+
+  it('skips loader rotation for z_up (teleop / Z-up mesh)', async () => {
+    const model = await buildRobotRenderable(meshUrdf, {
+      resolveMeshUrl: () => 'blob:https://local/link.stl',
+      warn: () => {},
+      meshUpAxis: 'z_up',
+    });
+    expect(getFirstMeshRootRotation(model)).toBeCloseTo(0, 5);
+    disposeRobotRenderable(model);
+  });
+
+  it('loads DA_TRON2A-style URDF without visual origin', async () => {
+    const urdf = `<?xml version="1.0"?>
+<robot name="bipedal_robot">
+  <link name="base_Link">
+    <visual>
+      <geometry><mesh filename="package://bipedal_robot/meshes/base_Link.STL"/></geometry>
+    </visual>
+  </link>
+</robot>`;
+    const model = await buildRobotRenderable(urdf, {
+      resolveMeshUrl: () => 'blob:https://local/base_Link.STL',
+      warn: () => {},
+      meshUpAxis: 'z_up',
+    });
+    expect(model.frameObjects).toHaveLength(1);
+    expect(getFirstMeshRootRotation(model)).toBeCloseTo(0, 5);
+    disposeRobotRenderable(model);
+  });
+});

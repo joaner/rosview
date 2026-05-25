@@ -24,6 +24,27 @@ const SAMPLE_URDF = `<?xml version="1.0"?>
   </link>
 </robot>`;
 
+/** DA_TRON2A-style visual: no <origin> (URDF default identity). */
+const NO_ORIGIN_MESH_URDF = `<?xml version="1.0"?>
+<robot name="bipedal_robot">
+  <link name="base_Link">
+    <visual>
+      <geometry><mesh filename="package://bipedal_robot/meshes/base_Link.STL"/></geometry>
+    </visual>
+  </link>
+</robot>`;
+
+/** Unitree G1-style visual: explicit origin rpy="0 0 0". */
+const UNITREE_MESH_URDF = `<?xml version="1.0"?>
+<robot name="g1">
+  <link name="pelvis">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry><mesh filename="meshes/pelvis.STL"/></geometry>
+    </visual>
+  </link>
+</robot>`;
+
 describe('urdfVisualCorrection', () => {
   it('matches teleop_tf rotate_mesh for identity origin', () => {
     const next = transformVisualOriginRpy([0, 0, 0], {
@@ -82,5 +103,23 @@ describe('urdfVisualCorrection', () => {
       visualRpyOffset: [0, 0, 0],
     });
     expect(withOffset[0]).not.toBeCloseTo(rotateOnly[0], 3);
+  });
+
+  it('injects origin for visuals without origin when rotate_mesh is on (DA_TRON2A)', () => {
+    const corrected = applyUrdfVisualCorrection(NO_ORIGIN_MESH_URDF, {
+      rotateMeshVisuals: true,
+      visualRpyOffset: [0, 0, 0],
+    });
+    expect(corrected).toContain('<origin xyz="0 0 0" rpy="-1.5707963267948966 0 0"/>');
+    expect(corrected).not.toBe(NO_ORIGIN_MESH_URDF);
+  });
+
+  it('updates explicit origin on Unitree-style URDF when rotate_mesh is on', () => {
+    const corrected = applyUrdfVisualCorrection(UNITREE_MESH_URDF, {
+      rotateMeshVisuals: true,
+      visualRpyOffset: [0, 0, 0],
+    });
+    expect(corrected).toContain('rpy="-1.5707963267948966 0 0"');
+    expect(corrected).not.toContain('rpy="0 0 0"');
   });
 });

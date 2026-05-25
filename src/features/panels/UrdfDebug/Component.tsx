@@ -28,6 +28,7 @@ import {
 import { configToRecipe, downloadJson, downloadText } from './recipe';
 import {
   analyzeUrdfText,
+  applyUrdfVisualCorrection,
   createDefaultManualPositions,
   extractUrdfJointDescriptors,
   pickJointStateTopic,
@@ -207,6 +208,19 @@ export const UrdfDebugPanel: React.FC<UrdfDebugPanelProps> = ({
   }, [rawUrdfContent, config.rotateMeshVisuals, config.visualRpyOffset]);
 
   const preparedUrdf = preparedUrdfResult.urdf;
+
+  /** Preview: mesh rotation via meshUpAxis; only bake visualRpyOffset into URDF text. */
+  const previewUrdf = useMemo(() => {
+    if (!rawUrdfContent) return '';
+    try {
+      return applyUrdfVisualCorrection(rawUrdfContent, {
+        rotateMeshVisuals: false,
+        visualRpyOffset: config.visualRpyOffset,
+      });
+    } catch {
+      return rawUrdfContent;
+    }
+  }, [rawUrdfContent, config.visualRpyOffset]);
 
   useEffect(() => {
     if (preparedUrdfResult.error) setLastError(preparedUrdfResult.error);
@@ -523,7 +537,7 @@ export const UrdfDebugPanel: React.FC<UrdfDebugPanelProps> = ({
       <ResizablePanel id="urdf-preview" className="min-h-0 min-w-0" minSize="30%">
         <div className="h-full min-h-0 overflow-hidden">
           <UrdfDebugPreview
-            urdfText={preparedUrdf}
+            urdfText={previewUrdf}
             jointState={jointStateForPreview}
             highFrequencyPoseUpdates={config.followLiveJointState}
             resolveMeshUrl={resolveMeshUrl}

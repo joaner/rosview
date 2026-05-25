@@ -11,6 +11,7 @@ import {
   buildRobotRenderable,
   disposeRobotRenderable,
   type MeshLoadProgress,
+  type MeshUpAxis,
   type RobotRenderable,
 } from '../ThreeD/foxglove-core/renderables';
 import type { JointStateMsg } from '../ThreeD/foxglove-core/types';
@@ -98,6 +99,7 @@ interface RobotPreviewProps {
   resolveMeshUrl: (rawPath: string) => string;
   fallbackMeshColor: string;
   meshOutlineColor: string;
+  meshUpAxis: MeshUpAxis;
   onMeshLoadProgressChange?: (progress: MeshLoadProgress | null) => void;
   onMeshIssue?: (meshUrl: string, reason: string) => void;
   onPreviewBuildResult?: (result: UrdfPreviewBuildResult | null) => void;
@@ -110,6 +112,7 @@ const RobotPreview: React.FC<RobotPreviewProps> = ({
   resolveMeshUrl,
   fallbackMeshColor,
   meshOutlineColor,
+  meshUpAxis,
   onMeshLoadProgressChange,
   onMeshIssue,
   onPreviewBuildResult,
@@ -222,6 +225,7 @@ const RobotPreview: React.FC<RobotPreviewProps> = ({
       try {
         const model = await buildRobotRenderable(urdf, {
           resolveMeshUrl,
+          meshUpAxis,
           warn: (meshUrl, reason) => {
             buildIssuesRef.current.push({ url: meshUrl, reason });
             onMeshIssue?.(meshUrl, reason);
@@ -267,6 +271,7 @@ const RobotPreview: React.FC<RobotPreviewProps> = ({
     };
   }, [
     urdf,
+    meshUpAxis,
     fallbackMeshColor,
     meshOutlineColor,
     resolveMeshUrl,
@@ -311,6 +316,7 @@ export const UrdfDebugPreview: React.FC<UrdfDebugPreviewProps> = ({
   const { formatMessage } = useIntl();
   const { resolvedTheme } = useRosViewTheme();
   const colors = useMemo(() => getThemeColors(resolvedTheme), [resolvedTheme]);
+  const meshUpAxis: MeshUpAxis = rotateMeshVisuals ? 'z_up' : 'y_up';
   const [meshLoadProgress, setMeshLoadProgress] = useState<MeshLoadProgress | null>(null);
   const [buildResult, setBuildResult] = useState<UrdfPreviewBuildResult | null>(null);
   const isMeshLoading =
@@ -427,6 +433,7 @@ export const UrdfDebugPreview: React.FC<UrdfDebugPreviewProps> = ({
             resolveMeshUrl={resolveMeshUrl}
             fallbackMeshColor={fallbackMeshColor}
             meshOutlineColor={colors.meshOutlineColor}
+            meshUpAxis={meshUpAxis}
             onMeshLoadProgressChange={handleMeshProgress}
             onMeshIssue={onMeshIssue}
             onPreviewBuildResult={handlePreviewBuildResult}

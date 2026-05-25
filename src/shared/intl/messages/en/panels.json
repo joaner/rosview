@@ -287,8 +287,8 @@
   "urdfDebug.meshStatus.unchecked": "Not checked",
   "urdfDebug.meshStrategy.packageBaseUrl": "Package base URL",
   "urdfDebug.meshStrategy.leaveAsIs": "Leave as-is",
-  "urdfDebug.rotateMeshVisuals": "Rotate mesh visuals (teleop_tf rotate_mesh)",
-  "urdfDebug.rotateMeshVisualsHint": "Aligns mesh orientation with the web viewer when the URDF export uses a different frame convention. Same as teleop_tf rotate_mesh: post-multiply each visual origin by R(-90° roll). Toggle to compare in the 3D preview.",
+  "urdfDebug.rotateMeshVisuals": "Rotate mesh visuals",
+  "urdfDebug.rotateMeshVisualsHint": "Turn on when the model looks tilted or lying on its side (common for CAD-exported STL, e.g. Tron2, Unitree G1). Turn off when the model already stands upright. Exported scripts write the chosen orientation into the URDF.",
   "urdfDebug.preview.empty": "Upload a URDF file to preview the robot.",
   "urdfDebug.preview.emptyTopicNoSelection": "Select a /robot_description topic or open a recording that contains one.",
   "urdfDebug.preview.emptyTopicWaiting": "Subscribed to {topic}; waiting for URDF string message…",
@@ -301,7 +301,7 @@
   "urdfDebug.input.topicLoaded": "Loaded from {topic} · {bytes} bytes",
   "urdfDebug.input.topicWaiting": "Waiting for first message on {topic}…",
   "urdfDebug.input.topicAutoDetectHint": "Leave empty to auto-detect a topic whose name contains robot_description.",
-  "urdfDebug.preview.title": "URDF Preview · rotate_mesh: {rotateMesh}",
+  "urdfDebug.preview.title": "URDF Preview · rotate mesh: {rotateMesh}",
   "urdfDebug.preview.rotateMeshOn": "ON",
   "urdfDebug.preview.rotateMeshOff": "OFF",
   "urdfDebug.preview.loadingMesh": "Loading mesh {loaded}/{total}",
@@ -349,5 +349,5 @@
   "urdfDebug.rule.linear": "Linear",
   "urdfDebug.rule.constant": "Constant",
   "urdfDebug.rule.ignore": "Ignore",
-  "urdfDebug.help.body": "Upload a URDF and tune joint mapping until the preview matches your recording. Toggle rotate_mesh when mesh orientation looks wrong (common for CAD exports). Use Symmetric pair for left/right gripper joints and Mimic fill to apply URDF mimic tags. Export recipe.json or a processing script to rewrite MCAP with /robot_description and /tf."
+  "urdfDebug.help.body": "Upload a URDF and tune joint mapping until the preview matches your recording. Toggle Rotate mesh visuals when mesh orientation looks wrong (common for CAD exports). Use Symmetric pair for left/right gripper joints and Mimic fill to apply URDF mimic tags. Export recipe.json or a processing script to rewrite MCAP with /robot_description and /tf."
 }

@@ -17,6 +17,22 @@ const FIXTURE_URDF = `<?xml version="1.0"?>
   </joint>
 </robot>`;
 
+/** Visual without <origin> (DA_TRON2A-style) but still has a joint for FK. */
+const NO_ORIGIN_MESH_URDF = `<?xml version="1.0"?>
+<robot name="test_robot">
+  <link name="base">
+    <visual>
+      <geometry><mesh filename="meshes/base.STL"/></geometry>
+    </visual>
+  </link>
+  <link name="link1"/>
+  <joint name="joint1" type="revolute">
+    <parent link="base"/><child link="link1"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+    <axis xyz="0 0 1"/>
+  </joint>
+</robot>`;
+
 class BufferWritable {
   #chunks: Buffer[] = [];
   #pos = 0n;
@@ -94,6 +110,22 @@ function listTopics(mcapPath: string): string[] {
   return [...topics].sort();
 }
 
+function readRobotDescription(mcapPath: string): string {
+  const reader = new McapStreamReader();
+  reader.append(readFileSync(mcapPath));
+  const topicsByChannel = new Map<number, string>();
+  let robotDescription = '';
+  for (let record = reader.nextRecord(); record; record = reader.nextRecord()) {
+    if (record.type === 'Channel') {
+      topicsByChannel.set(record.id, record.topic);
+    } else if (record.type === 'Message' && topicsByChannel.get(record.channelId) === '/robot_description') {
+      const payload = JSON.parse(new TextDecoder().decode(record.data)) as { data?: string };
+      robotDescription = payload.data ?? '';
+    }
+  }
+  return robotDescription;
+}
+
 const sampleRecipe: UrdfDebugRecipe = {
   version: 1,
   jointStateTopic: '/joint_states',
@@ -122,6 +154,17 @@ describe('scriptTemplates', () => {
     expect(script).not.toContain('.pending');
   });
 
+  it('Python export includes missing-origin visual correction', () => {
+    const recipe: UrdfDebugRecipe = {
+      ...sampleRecipe,
+      urdf: { rotateMeshVisuals: true, visualRpyOffset: [0, 0, 0] },
+    };
+    const script = generatePythonScript(recipe);
+    expect(script).toContain('repl_missing_origin');
+    expect(script).toContain('repl_missing_rpy');
+    expect(script).toContain("re.search(r'<origin\\b', inner, re.I)");
+  });
+
   it('TypeScript processor rewrites test MCAP with /tf and /robot_description', async () => {
     const dir = mkdtempSync(join(process.cwd(), '.tmp-urdf-debug-'));
     const inputPath = join(dir, 'input.mcap');
@@ -145,5 +188,32 @@ describe('scriptTemplates', () => {
     expect(topics).toContain('/tf');
     expect(topics).toContain('/robot_description');
     expect(topics).toContain('/joint_states');
+  });
+
+  it('TypeScript export injects visual origin for mesh-only URDF when rotateMeshVisuals is on', async () => {
+    const recipe: UrdfDebugRecipe = {
+      ...sampleRecipe,
+      urdf: { rotateMeshVisuals: true, visualRpyOffset: [0, 0, 0] },
+    };
+    const dir = mkdtempSync(join(process.cwd(), '.tmp-urdf-debug-'));
+    const inputPath = join(dir, 'input.mcap');
+    const outputPath = join(dir, 'out.mcap');
+    const urdfPath = join(dir, 'test.urdf');
+    const scriptPath = join(dir, 'process.mjs');
+    const recipePath = join(dir, 'recipe.json');
+
+    await writeFixtureMcap(inputPath);
+    writeFileSync(urdfPath, NO_ORIGIN_MESH_URDF);
+    writeFileSync(recipePath, JSON.stringify(recipe, null, 2));
+    writeFileSync(scriptPath, generateTypeScriptScript(recipe));
+
+    execFileSync(
+      'node',
+      [scriptPath, inputPath, outputPath, recipePath, urdfPath, '--overwrite-topics'],
+      { stdio: 'pipe', cwd: process.cwd() },
+    );
+
+    const robotDescription = readRobotDescription(outputPath);
+    expect(robotDescription).toContain('rpy="-1.5707963267948966 0 0"');
   });
 });

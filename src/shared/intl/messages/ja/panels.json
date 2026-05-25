@@ -287,8 +287,8 @@
   "urdfDebug.meshStatus.unchecked": "未確認",
   "urdfDebug.meshStrategy.packageBaseUrl": "Package ベース URL",
   "urdfDebug.meshStrategy.leaveAsIs": "そのまま",
-  "urdfDebug.rotateMeshVisuals": "Mesh ビジュアルを回転（teleop_tf rotate_mesh）",
-  "urdfDebug.rotateMeshVisualsHint": "URDF 出力の座標系が Web プレビューと異なる場合に mesh の向きを合わせます。teleop_tf の rotate_mesh と同じく、各 visual origin に R(-90° roll) を右乗算します。3D プレビューで切り替えて確認できます。",
+  "urdfDebug.rotateMeshVisuals": "Mesh ビジュアルを回転",
+  "urdfDebug.rotateMeshVisualsHint": "モデルが傾いたり横たわって見える場合（CAD 出力の STL でよくある、Tron2・Unitree G1 など）は ON にしてください。すでに正しく立っている場合は OFF にしてください。エクスポートスクリプトは選択した向きを URDF に書き込みます。",
   "urdfDebug.preview.empty": "URDF ファイルをアップロードしてロボットをプレビューします。",
   "urdfDebug.preview.emptyTopicNoSelection": "/robot_description トピックを選択するか、該当トピックを含む録画を開いてください。",
   "urdfDebug.preview.emptyTopicWaiting": "{topic} を購読中。URDF 文字列メッセージを待っています…",
@@ -301,7 +301,7 @@
   "urdfDebug.input.topicLoaded": "{topic} から読み込み済み · {bytes} bytes",
   "urdfDebug.input.topicWaiting": "{topic} の最初のメッセージを待機中…",
   "urdfDebug.input.topicAutoDetectHint": "空欄のままにすると robot_description を含むトピックを自動検出します。",
-  "urdfDebug.preview.title": "URDF プレビュー · rotate_mesh: {rotateMesh}",
+  "urdfDebug.preview.title": "URDF プレビュー · Mesh 回転: {rotateMesh}",
   "urdfDebug.preview.rotateMeshOn": "ON",
   "urdfDebug.preview.rotateMeshOff": "OFF",
   "urdfDebug.preview.loadingMesh": "Mesh 読込 {loaded}/{total}",
@@ -349,5 +349,5 @@
   "urdfDebug.rule.linear": "線形",
   "urdfDebug.rule.constant": "定数",
   "urdfDebug.rule.ignore": "無視",
-  "urdfDebug.help.body": "URDF をアップロードし、プレビューが録画データと一致するまで関節マッピングを調整します。mesh の向きが合わない場合（CAD 出力でよくある）は rotate_mesh を切り替えてください。対称関節ペアは左右グリッパー用、Mimic 補完は URDF の mimic タグに従い従動関節を補完します。recipe.json または処理スクリプトをエクスポートすると、/robot_description と /tf を含む MCAP をローカルで再生成できます。"
+  "urdfDebug.help.body": "URDF をアップロードし、プレビューが録画データと一致するまで関節マッピングを調整します。mesh の向きが合わない場合（CAD 出力でよくある）は「Mesh ビジュアルを回転」を切り替えてください。対称関節ペアは左右グリッパー用、Mimic 補完は URDF の mimic タグに従い従動関節を補完します。recipe.json または処理スクリプトをエクスポートすると、/robot_description と /tf を含む MCAP をローカルで再生成できます。"
 }

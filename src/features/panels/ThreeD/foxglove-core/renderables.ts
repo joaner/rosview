@@ -62,11 +62,17 @@ export type MeshLoadProgress = {
   failed: number;
 };
 
+/** Foxglove-compatible mesh file up-axis (REP-103 scene is always Z-up). */
+export type MeshUpAxis = 'y_up' | 'z_up';
+
+export const DEFAULT_MESH_UP_AXIS: MeshUpAxis = 'y_up';
+
 type BuildRobotRenderableOptions = {
   resolveMeshUrl: (rawPath: string) => string;
   warn: (meshUrl: string, reason: string) => void;
   fallbackMeshColor?: string;
   outlineColor?: string;
+  meshUpAxis?: MeshUpAxis;
   onMeshLoadProgress?: (progress: MeshLoadProgress) => void;
 };
 
@@ -435,11 +441,11 @@ async function loadMeshObject(
   try {
     let object: THREE.Object3D | undefined;
     if (asset.asset.kind === 'stl') {
-      object = loadStl(asset.asset.buffer, color);
+      object = loadStl(asset.asset.buffer, color, options.meshUpAxis ?? DEFAULT_MESH_UP_AXIS);
     } else if (asset.asset.kind === 'obj') {
-      object = loadObj(asset.asset.text, color);
+      object = loadObj(asset.asset.text, color, options.meshUpAxis ?? DEFAULT_MESH_UP_AXIS);
     } else {
-      object = loadCollada(asset.asset.text, meshUrl);
+      object = loadCollada(asset.asset.text, meshUrl, options.meshUpAxis ?? DEFAULT_MESH_UP_AXIS);
     }
     if (geometry.scale) {
       object.scale.set(geometry.scale.x, geometry.scale.y, geometry.scale.z);
@@ -519,16 +525,18 @@ async function loadMeshAsset(
   return await cached;
 }
 
-function loadStl(buffer: ArrayBuffer, color: THREE.Color): THREE.Object3D {
+function loadStl(buffer: ArrayBuffer, color: THREE.Color, meshUpAxis: MeshUpAxis): THREE.Object3D {
   const geometry = new STLLoader().parse(buffer);
   const mesh = makeLitMesh(geometry, color);
   const group = new THREE.Group();
   group.add(mesh);
-  group.rotateX(Math.PI / 2);
+  if (meshUpAxis === 'y_up') {
+    group.rotateX(Math.PI / 2);
+  }
   return group;
 }
 
-function loadObj(text: string, color: THREE.Color): THREE.Object3D {
+function loadObj(text: string, color: THREE.Color, meshUpAxis: MeshUpAxis): THREE.Object3D {
   const object = new OBJLoader().parse(text);
   object.traverse((child) => {
     const mesh = child as THREE.Mesh;
@@ -539,15 +547,17 @@ function loadObj(text: string, color: THREE.Color): THREE.Object3D {
       mesh.material = createFallbackMeshMaterial(color);
     }
   });
-  object.rotateX(Math.PI / 2);
+  if (meshUpAxis === 'y_up') {
+    object.rotateX(Math.PI / 2);
+  }
   return object;
 }
 
-function loadCollada(text: string, meshUrl: string): THREE.Object3D {
+function loadCollada(text: string, meshUrl: string, meshUpAxis: MeshUpAxis): THREE.Object3D {
   const xml = new DOMParser().parseFromString(text, 'application/xml');
   const upAxis = (xml.querySelector('up_axis')?.textContent ?? 'Y_UP').trim().toUpperCase();
   const collada = new ColladaLoader().parse(xml.documentElement.outerHTML, meshUrl);
-  if (upAxis === 'Y_UP') {
+  if (meshUpAxis === 'y_up' && upAxis === 'Y_UP') {
     collada.scene.rotateX(Math.PI / 2);
   }
   return collada.scene;

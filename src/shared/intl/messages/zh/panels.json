@@ -287,8 +287,8 @@
   "urdfDebug.meshStatus.unchecked": "未检测",
   "urdfDebug.meshStrategy.packageBaseUrl": "Package 基础 URL",
   "urdfDebug.meshStrategy.leaveAsIs": "保持原样",
-  "urdfDebug.rotateMeshVisuals": "旋转 mesh 视觉（teleop_tf rotate_mesh）",
-  "urdfDebug.rotateMeshVisualsHint": "当 URDF 导出工具的坐标系与网页预览不一致时，开启此项修正 mesh 朝向。与 teleop_tf 的 rotate_mesh 相同：对每个 visual origin 右乘 R(-90° roll)。可实时切换对比 3D 预览效果。",
+  "urdfDebug.rotateMeshVisuals": "旋转 mesh 视觉",
+  "urdfDebug.rotateMeshVisualsHint": "若模型倾斜或侧躺（常见于 CAD 导出的 STL，如 Tron2、Unitree G1），请开启；若模型已正确站立，请关闭。导出脚本会将对应朝向写入 URDF。",
   "urdfDebug.preview.empty": "上传 URDF 文件以预览机器人。",
   "urdfDebug.preview.emptyTopicNoSelection": "请选择 /robot_description 话题，或打开包含该话题的录制文件。",
   "urdfDebug.preview.emptyTopicWaiting": "已订阅 {topic}，等待 URDF 字符串消息…",
@@ -301,7 +301,7 @@
   "urdfDebug.input.topicLoaded": "已从 {topic} 加载 · {bytes} 字节",
   "urdfDebug.input.topicWaiting": "正在等待 {topic} 的首条消息…",
   "urdfDebug.input.topicAutoDetectHint": "留空将自动检测名称包含 robot_description 的话题。",
-  "urdfDebug.preview.title": "URDF 预览 · rotate_mesh: {rotateMesh}",
+  "urdfDebug.preview.title": "URDF 预览 · 旋转 mesh：{rotateMesh}",
   "urdfDebug.preview.rotateMeshOn": "开",
   "urdfDebug.preview.rotateMeshOff": "关",
   "urdfDebug.preview.loadingMesh": "加载 mesh {loaded}/{total}",
@@ -349,5 +349,5 @@
   "urdfDebug.rule.linear": "线性",
   "urdfDebug.rule.constant": "常量",
   "urdfDebug.rule.ignore": "忽略",
-  "urdfDebug.help.body": "上传 URDF 并调整关节映射，直到预览与录制数据一致。若 mesh 朝向不对（常见于 CAD 导出），可切换 rotate_mesh 修正。对称关节对用于左右夹爪；Mimic 填充会根据 URDF 的 mimic 标签补齐从动关节。导出 recipe.json 或处理脚本后，可在本地重写 MCAP，写入 /robot_description 与 /tf。"
+  "urdfDebug.help.body": "上传 URDF 并调整关节映射，直到预览与录制数据一致。若 mesh 朝向不对（常见于 CAD 导出），可切换「旋转 mesh 视觉」。对称关节对用于左右夹爪；Mimic 填充会根据 URDF 的 mimic 标签补齐从动关节。导出 recipe.json 或处理脚本后，可在本地重写 MCAP，写入 /robot_description 与 /tf。"
 }

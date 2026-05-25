@@ -1,6 +1,6 @@
 import type { UrdfDebugRecipe } from './recipe';
 import fkEngineJs from './embedded/fkEngine.js?raw';
-import { URDF_VISUAL_CORRECTION_JS } from './urdfVisualCorrection';
+import { URDF_VISUAL_CORRECTION_JS, URDF_VISUAL_CORRECTION_PY } from './urdfVisualCorrection';
 
 const MAPPING_CORE_JS = `
 function clampValue(value, min, max) {
@@ -510,61 +510,6 @@ def _joint_motion_tr(joint):
 `.trim();
 
 const MCAP_PROCESSOR_PY = `
-def prepare_urdf_xml(xml, recipe):
-    urdf = recipe.get('urdf') or {}
-    rotate = bool(urdf.get('rotateMeshVisuals'))
-    offset = urdf.get('visualRpyOffset') or [0, 0, 0]
-    if not rotate and all(v == 0 for v in offset):
-        return xml
-    import math
-    import re
-
-    def rotation_matrix_from_rpy(roll, pitch, yaw):
-        cx, sx = math.cos(roll), math.sin(roll)
-        cy, sy = math.cos(pitch), math.sin(pitch)
-        cz, sz = math.cos(yaw), math.sin(yaw)
-        return [
-            [cz * cy, cz * sy * sx - sz * cx, cz * sy * cx + sz * sx],
-            [sz * cy, sz * sy * sx + cz * cx, sz * sy * cx - cz * sx],
-            [-sy, cy * sx, cy * cx],
-        ]
-
-    def rpy_from_rotation_matrix(m):
-        sy = -m[2][0]
-        if abs(sy) < 1 - 1e-6:
-            pitch = math.asin(sy)
-            roll = math.atan2(m[2][1], m[2][2])
-            yaw = math.atan2(m[1][0], m[0][0])
-            return [roll, pitch, yaw]
-        pitch = math.pi / 2 if sy > 0 else -math.pi / 2
-        roll = math.atan2(-m[0][1], m[1][1])
-        return [roll, pitch, 0.0]
-
-    def multiply_mat3(a, b):
-        out = [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]]
-        for i in range(3):
-            for j in range(3):
-                out[i][j] = a[i][0] * b[0][j] + a[i][1] * b[1][j] + a[i][2] * b[2][j]
-        return out
-
-    def transform_visual_origin_rpy(rpy):
-        matrix = rotation_matrix_from_rpy(rpy[0], rpy[1], rpy[2])
-        if rotate:
-            matrix = multiply_mat3(matrix, rotation_matrix_from_rpy(-math.pi / 2, 0.0, 0.0))
-        if not all(v == 0 for v in offset):
-            matrix = multiply_mat3(matrix, rotation_matrix_from_rpy(offset[0], offset[1], offset[2]))
-        return rpy_from_rotation_matrix(matrix)
-
-    def repl(match):
-        prefix, rpy_raw, suffix = match.group(1), match.group(2) or '0 0 0', match.group(3)
-        parts = [float(v or 0) for v in rpy_raw.split()]
-        while len(parts) < 3:
-            parts.append(0.0)
-        next_rpy = transform_visual_origin_rpy(parts[:3])
-        return f'{prefix}{next_rpy[0]} {next_rpy[1]} {next_rpy[2]}{suffix}'
-
-    return re.sub(r'(<visual\\s[\\s\\S]*?<origin\\b[^>]*\\brpy=")([^"]*)(")', repl, xml)
-
 def normalize_joint_state(raw):
     if not isinstance(raw, dict):
         raw = {}
@@ -793,6 +738,8 @@ from pathlib import Path
 ${MAPPING_CORE_PY}
 
 ${FK_ENGINE_PY}
+
+${URDF_VISUAL_CORRECTION_PY}
 
 ${MCAP_PROCESSOR_PY}
 
