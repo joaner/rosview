@@ -7,18 +7,7 @@ import {
   applyJointStates,
   buildRobotRenderable,
   disposeRobotRenderable,
-  getMeshExtensionFromUrl,
-  isSupportedMeshExtension,
 } from './renderables';
-
-describe('renderables mesh helpers', () => {
-  it('detects mesh extensions case-insensitively', () => {
-    expect(getMeshExtensionFromUrl('blob:https://x/base_Link.STL')).toBe('stl');
-    expect(getMeshExtensionFromUrl('https://x/mesh.OBJ?cache=1')).toBe('obj');
-    expect(isSupportedMeshExtension('dae')).toBe(true);
-    expect(isSupportedMeshExtension('glb')).toBe(false);
-  });
-});
 
 const BOX_URDF = `<?xml version="1.0"?>
 <robot name="box_bot">
@@ -199,6 +188,38 @@ describe('buildRobotRenderable mesh formats', () => {
     expect(fetchMock).toHaveBeenCalledWith('blob:https://local/link.obj');
   });
 
+  it('loads STL mesh assets from blob URLs without file suffix', async () => {
+    const stlText = [
+      'solid test',
+      '  facet normal 0 0 0',
+      '    outer loop',
+      '      vertex 0 0 0',
+      '      vertex 1 0 0',
+      '      vertex 0 1 0',
+      '    endloop',
+      '  endfacet',
+      'endsolid test',
+    ].join('\n');
+    const stlBuffer = new TextEncoder().encode(stlText).buffer;
+    fetchMock.mockResolvedValue({
+      ok: true,
+      arrayBuffer: async () => stlBuffer,
+      text: async () => stlText,
+    });
+
+    const blobUrl = 'blob:http://localhost:3000/362418a8-a44f-4926-b6dc-bc29d6a527c6';
+    const warnings: string[] = [];
+    const model = await buildRobotRenderable(MESH_URDF('package://robot/meshes/link.STL'), {
+      resolveMeshUrl: () => blobUrl,
+      warn: (_url, reason) => warnings.push(reason),
+    });
+
+    expect(warnings.some((reason) => reason.includes('unsupported mesh format'))).toBe(false);
+    expect(model.frameObjects).toHaveLength(1);
+    disposeRobotRenderable(model);
+    expect(fetchMock).toHaveBeenCalledWith(blobUrl);
+  });
+
   it('reports unsupported mesh extensions via warn callback', async () => {
     const warnings: string[] = [];
     const model = await buildRobotRenderable(MESH_URDF('package://robot/meshes/link.glb'), {
@@ -206,7 +227,7 @@ describe('buildRobotRenderable mesh formats', () => {
       warn: (_url, reason) => warnings.push(reason),
     });
     expect(model.frameObjects).toHaveLength(0);
-    expect(warnings.some((reason) => reason.includes('unsupported extension'))).toBe(true);
+    expect(warnings.some((reason) => reason.includes('unsupported mesh format'))).toBe(true);
     disposeRobotRenderable(model);
   });
 });

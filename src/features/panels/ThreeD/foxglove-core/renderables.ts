@@ -6,6 +6,11 @@ import { STLLoader } from 'three/examples/jsm/loaders/STLLoader.js';
 import { composeJointTransform, parseUrdf } from './urdf';
 import { TransformTree, normalizeFrameId } from './transformTree';
 import {
+  isSupportedMeshExtension,
+  resolveMeshFormat,
+  type SupportedMeshExtension,
+} from './meshFormat';
+import {
   eulerToQuaternion,
   type JointStateMsg,
   type ParsedUrdf,
@@ -14,6 +19,15 @@ import {
   type UrdfMaterial,
   type UrdfVisual,
 } from './types';
+
+export {
+  getMeshExtensionFromPath,
+  getMeshExtensionFromUrl,
+  isSupportedMeshExtension,
+  resolveMeshFormat,
+  SUPPORTED_MESH_EXTENSIONS,
+  type SupportedMeshExtension,
+} from './meshFormat';
 
 export type RobotRenderable = {
   root: THREE.Group;
@@ -47,17 +61,6 @@ export type MeshLoadProgress = {
   loaded: number;
   failed: number;
 };
-
-export const SUPPORTED_MESH_EXTENSIONS = ['stl', 'dae', 'obj'] as const;
-export type SupportedMeshExtension = (typeof SUPPORTED_MESH_EXTENSIONS)[number];
-
-export function getMeshExtensionFromUrl(meshUrl: string): string | undefined {
-  return meshUrl.split('?')[0]?.split('.').pop()?.toLowerCase();
-}
-
-export function isSupportedMeshExtension(ext: string | undefined): ext is SupportedMeshExtension {
-  return ext === 'stl' || ext === 'dae' || ext === 'obj';
-}
 
 type BuildRobotRenderableOptions = {
   resolveMeshUrl: (rawPath: string) => string;
@@ -419,12 +422,13 @@ async function loadMeshObject(
   options: BuildRobotRenderableOptions,
 ): Promise<THREE.Object3D | undefined> {
   const geometry = visual.geometry as UrdfGeometryMesh;
-  const meshUrl = options.resolveMeshUrl(geometry.filename);
-  const ext = getMeshExtensionFromUrl(meshUrl);
+  const sourcePath = geometry.filename;
+  const meshUrl = options.resolveMeshUrl(sourcePath);
+  const format = resolveMeshFormat(sourcePath, meshUrl);
 
-  const asset = await loadMeshAsset(meshUrl, ext);
+  const asset = await loadMeshAsset(meshUrl, format);
   if (asset.ok === false) {
-    options.warn(meshUrl, asset.reason);
+    options.warn(meshUrl, `${asset.reason} (source: ${sourcePath})`);
     return undefined;
   }
 
@@ -480,22 +484,28 @@ async function loadMeshObject(
   }
 }
 
-async function loadMeshAsset(meshUrl: string, ext: string | undefined): Promise<MeshAssetLoadResult> {
+async function loadMeshAsset(
+  meshUrl: string,
+  format: SupportedMeshExtension | undefined,
+): Promise<MeshAssetLoadResult> {
   let cached = meshAssetCache.get(meshUrl);
   if (!cached) {
     cached = (async () => {
-      if (!isSupportedMeshExtension(ext)) {
-        return { ok: false, reason: `unsupported extension: ${ext ?? 'unknown'}` } satisfies MeshAssetLoadResult;
+      if (!isSupportedMeshExtension(format)) {
+        return {
+          ok: false,
+          reason: `unsupported mesh format: ${format ?? 'unknown'}`,
+        } satisfies MeshAssetLoadResult;
       }
       try {
         const response = await fetch(meshUrl);
         if (!response.ok) {
           throw new Error(`${response.status} ${response.statusText}`);
         }
-        if (ext === 'stl') {
+        if (format === 'stl') {
           return { ok: true, asset: { kind: 'stl', buffer: await response.arrayBuffer() } } satisfies MeshAssetLoadResult;
         }
-        if (ext === 'obj') {
+        if (format === 'obj') {
           return { ok: true, asset: { kind: 'obj', text: await response.text() } } satisfies MeshAssetLoadResult;
         }
         return { ok: true, asset: { kind: 'dae', text: await response.text() } } satisfies MeshAssetLoadResult;
