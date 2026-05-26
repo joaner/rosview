@@ -14,6 +14,14 @@ export interface CompressedImageMessage {
   data: Uint8Array;
 }
 
+/** foxglove_msgs/msg/CompressedVideo — Annex B H264/H265/VP9/AV1 bitstream chunks. */
+export interface CompressedVideoMessage {
+  timestamp?: Time;
+  frame_id?: string;
+  format: string;
+  data: Uint8Array;
+}
+
 export interface ImageSurfaceStatus {
   phase: 'idle' | 'decoding' | 'ready' | 'error';
   width?: number;
@@ -63,6 +71,33 @@ export function isCompressedImageMessage(message: unknown): message is Compresse
       'data' in message &&
       (message as { data?: unknown }).data instanceof Uint8Array,
   );
+}
+
+export function isCompressedVideoMessage(message: unknown): message is CompressedVideoMessage {
+  return Boolean(
+    message &&
+      typeof message === 'object' &&
+      'format' in message &&
+      'data' in message &&
+      (message as { data?: unknown }).data instanceof Uint8Array,
+  );
+}
+
+export type CompressedFrameMessage = CompressedImageMessage | CompressedVideoMessage;
+
+export function isCompressedFrameMessage(message: unknown): message is CompressedFrameMessage {
+  return isCompressedImageMessage(message) || isCompressedVideoMessage(message);
+}
+
+export function getCompressedFrameFormat(message: CompressedFrameMessage): string {
+  return message.format;
+}
+
+export function isH264CompressedFrameMessage(message: unknown): boolean {
+  if (!isCompressedFrameMessage(message)) {
+    return false;
+  }
+  return getCompressedKind(getCompressedFrameFormat(message)) === 'h264';
 }
 
 export function isRawImageMessage(message: unknown): message is RawImageMessage {
@@ -157,5 +192,28 @@ export function isRawImageTopicSchema(schemaName: string): boolean {
   if (lower.includes('compressedimage')) {
     return false;
   }
+  if (lower.includes('compressedvideo')) {
+    return false;
+  }
   return /(^|\/)sensor_msgs\/(msg\/)?image$/i.test(trimmed);
+}
+
+/** Topic type tokens accepted by the Image panel topic picker. */
+export const IMAGE_PANEL_TOPIC_INCLUDES = ['image', 'CompressedImage', 'CompressedVideo'] as const;
+
+export function isImagePanelTopicSchema(schemaName: string): boolean {
+  const lower = schemaName.trim().toLowerCase();
+  if (!lower) {
+    return false;
+  }
+  if (isRawImageTopicSchema(schemaName)) {
+    return true;
+  }
+  if (lower.includes('compressedimage')) {
+    return true;
+  }
+  if (lower.includes('compressedvideo')) {
+    return true;
+  }
+  return false;
 }

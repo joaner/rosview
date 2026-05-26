@@ -19,6 +19,11 @@ describe('classifyCameraSide', () => {
     expect(classifyCameraSide('/sensor/Right_Gripper_Camera_0/image/compressed')).toBe('right');
     expect(classifyCameraSide('/sensor/EgoCentric_Camera_0/image/compressed')).toBe('other');
   });
+
+  it('maps /head/ streams to the top column', () => {
+    expect(classifyCameraSide('/head/color/image')).toBe('top');
+    expect(classifyCameraSide('/head/depth/image')).toBe('top');
+  });
 });
 
 describe('isDepthImageTopicName', () => {
@@ -46,6 +51,30 @@ describe('planColorDepthCameraRows', () => {
       expect(classifyCameraSide(row[1]!)).toBe('top');
       expect(classifyCameraSide(row[2]!)).toBe('right');
     }
+    expect(colorRow.every((topic) => topic == null || !isDepthImageTopicName(topic))).toBe(true);
+    expect(depthRow.every((topic) => topic == null || isDepthImageTopicName(topic))).toBe(true);
+  });
+
+  it('lays out six head/left/right CompressedVideo streams as color row + depth row', () => {
+    const topics: TopicInfo[] = [
+      { name: '/head/color/image', type: 'foxglove_msgs/msg/CompressedVideo [ros2msg]' },
+      { name: '/head/depth/image', type: 'foxglove_msgs/msg/CompressedVideo [ros2msg]' },
+      { name: '/left/color/image', type: 'foxglove_msgs/msg/CompressedVideo [ros2msg]' },
+      { name: '/left/depth/image', type: 'foxglove_msgs/msg/CompressedVideo [ros2msg]' },
+      { name: '/right/color/image', type: 'foxglove_msgs/msg/CompressedVideo [ros2msg]' },
+      { name: '/right/depth/image', type: 'foxglove_msgs/msg/CompressedVideo [ros2msg]' },
+    ];
+    const { colorRow, depthRow } = planColorDepthCameraRows(topics);
+    expect(colorRow).toEqual([
+      '/left/color/image',
+      '/head/color/image',
+      '/right/color/image',
+    ]);
+    expect(depthRow).toEqual([
+      '/left/depth/image',
+      '/head/depth/image',
+      '/right/depth/image',
+    ]);
   });
 
   it('shows up to six streams even when side tokens are missing', () => {
@@ -53,9 +82,9 @@ describe('planColorDepthCameraRows', () => {
       { name: '/sensor/Left_Gripper_Camera_0/image/compressed', type: 'sensor_msgs/msg/CompressedImage' },
       { name: '/sensor/Right_Gripper_Camera_0/image/compressed', type: 'sensor_msgs/msg/CompressedImage' },
       { name: '/sensor/EgoCentric_Camera_0/image/compressed', type: 'sensor_msgs/msg/CompressedImage' },
-      { name: '/sensor/EgoCentric_Camera_1/image/compressed', type: 'sensor_msgs/msg/CompressedImage' },
-      { name: '/io/pose/Gripper/compressed', type: 'sensor_msgs/msg/CompressedImage' },
-      { name: '/io/depth/EgoCentric_Camera/color/compressed', type: 'sensor_msgs/msg/CompressedImage' },
+      { name: '/sensor/Left_Gripper_Camera_0/depth/compressed', type: 'sensor_msgs/msg/CompressedImage' },
+      { name: '/sensor/Right_Gripper_Camera_0/depth/compressed', type: 'sensor_msgs/msg/CompressedImage' },
+      { name: '/sensor/EgoCentric_Camera_0/depth/compressed', type: 'sensor_msgs/msg/CompressedImage' },
     ];
     const { colorRow, depthRow } = planColorDepthCameraRows(topics);
     const picked = [...colorRow, ...depthRow].filter((name): name is string => name != null);
@@ -63,9 +92,9 @@ describe('planColorDepthCameraRows', () => {
     expect(picked).toContain('/sensor/Left_Gripper_Camera_0/image/compressed');
     expect(picked).toContain('/sensor/Right_Gripper_Camera_0/image/compressed');
     expect(picked).toContain('/sensor/EgoCentric_Camera_0/image/compressed');
-    expect(picked).toContain('/sensor/EgoCentric_Camera_1/image/compressed');
-    expect(picked).toContain('/io/pose/Gripper/compressed');
-    expect(picked).toContain('/io/depth/EgoCentric_Camera/color/compressed');
+    expect(picked).toContain('/sensor/Left_Gripper_Camera_0/depth/compressed');
+    expect(picked).toContain('/sensor/Right_Gripper_Camera_0/depth/compressed');
+    expect(picked).toContain('/sensor/EgoCentric_Camera_0/depth/compressed');
   });
 });
 

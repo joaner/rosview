@@ -18,7 +18,7 @@ import {
 import { planColorDepthCameraRows } from '@/features/layout/autoLayout/planRosImageGrid';
 import { heuristicAudioInfoTopics } from '@/features/panels/Audio/audio-core/resolveAudioInfo';
 import { getPanelDefinition } from '@/features/panels/registry';
-import { isAudioCommonInfoSchema, isRawAudioSchema, normalizeRosSchemaName } from '@/shared/ros/rosMessageTypes';
+import { isAudioCommonInfoSchema, isJointStateSchema, isRawAudioSchema, normalizeRosSchemaName } from '@/shared/ros/rosMessageTypes';
 import { pickDefaultRawMessagesTopic } from '@/features/layout/autoLayout/pickDefaultRawMessagesTopic';
 
 function imageTabTitle(topic: string): string {
@@ -192,6 +192,24 @@ export interface BuildDefaultRosLayoutOptions {
   publishersByTopic?: ReadonlyMap<string, ReadonlySet<string>>;
 }
 
+function isTransformTopicType(type: string): boolean {
+  const normalized = type.trim().toLowerCase();
+  return (
+    normalized.includes('tfmessage') ||
+    normalized.includes('tf2_msgs') ||
+    normalized.includes('tf/tfmessage') ||
+    normalized.includes('/transform')
+  );
+}
+
+/** 3D is useful when the bag carries robot motion / TF — not for pure camera feeds. */
+function shouldIncludeThreeDPanel(topics: ReadonlyArray<TopicInfo>): boolean {
+  if (isBvhOnlyDataset(topics)) {
+    return true;
+  }
+  return topics.some((topic) => isJointStateSchema(topic.type) || isTransformTopicType(topic.type));
+}
+
 function isHdf5Dataset(
   topics: ReadonlyArray<TopicInfo>,
   publishersByTopic?: ReadonlyMap<string, ReadonlySet<string>>,
@@ -244,8 +262,8 @@ export function buildDefaultRosFoxgloveLayoutData(
     stackParts.push(rawId);
   } else {
     const poseTopics = collectTopicsForPanelSchemas(topics, 'Pose');
-    const threeDId = createPanelInstanceId('3D');
-    configById[threeDId] = {};
+    const includeThreeD = shouldIncludeThreeDPanel(topics);
+
     if (poseTopics.length > 0) {
       const poseId = createPanelInstanceId('Pose');
       configById[poseId] = {
@@ -255,21 +273,28 @@ export function buildDefaultRosFoxgloveLayoutData(
           enabled: true,
         })),
       };
-      stackParts.push({
-        direction: 'row',
-        first: poseId,
-        second: threeDId,
-      });
-    } else {
+      if (includeThreeD) {
+        const threeDId = createPanelInstanceId('3D');
+        configById[threeDId] = {};
+        stackParts.push({
+          direction: 'row',
+          first: poseId,
+          second: threeDId,
+        });
+      } else {
+        stackParts.push(poseId);
+      }
+    } else if (includeThreeD) {
+      const threeDId = createPanelInstanceId('3D');
+      configById[threeDId] = {};
       stackParts.push(threeDId);
     }
   }
 
-  // BVH-only datasets just keep the single 3D panel; `mosaicToDockviewGrid`
-  // wraps the leaf into a branch internally so Dockview's `fromJSON` is happy.
-  // For other single-eligible-panel cases (e.g. non-BVH yielding only 3D),
-  // keep the historical RawMessages fallback so the user still sees raw data.
-  if (stackParts.length === 1 && !isBvhOnlyDataset(topics) && !hdf5Dataset) {
+  if (stackParts.length === 0 && !isBvhOnlyDataset(topics) && !hdf5Dataset) {
+    const rawId = appendFallbackRawMessagesPanel(topics, configById);
+    stackParts.push(rawId);
+  } else if (stackParts.length === 1 && !isBvhOnlyDataset(topics) && !hdf5Dataset) {
     const rawId = appendFallbackRawMessagesPanel(topics, configById);
     stackParts.push(rawId);
   }

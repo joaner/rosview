@@ -7,6 +7,7 @@ import {
   isRosImageSchema,
   matchesRosSchema,
   normalizeRosSchemaName,
+  ROS_MSG_FOXGLOVE_COMPRESSED_VIDEO,
   ROS_MSG_FOXGLOVE_RAW_AUDIO,
   ROS_MSG_POSE_STAMPED,
   ROS_MSG_SENSOR_COMPRESSED_IMAGE,
@@ -41,6 +42,7 @@ describe('isRosImageSchema', () => {
   it('supports source-annotated schema labels', () => {
     expect(isRosImageSchema('sensor_msgs/msg/Image [ros2msg]')).toBe(true);
     expect(isRosImageSchema('sensor_msgs/msg/CompressedImage [jsonschema]')).toBe(true);
+    expect(isRosImageSchema(`${ROS_MSG_FOXGLOVE_COMPRESSED_VIDEO} [ros2msg]`)).toBe(true);
   });
 });
 
@@ -60,6 +62,7 @@ describe('rosMessageTypes', () => {
   it('detects image schemas', () => {
     expect(isRosImageSchema('sensor_msgs/msg/Image')).toBe(true);
     expect(isRosImageSchema('sensor_msgs/msg/CompressedImage')).toBe(true);
+    expect(isRosImageSchema(ROS_MSG_FOXGLOVE_COMPRESSED_VIDEO)).toBe(true);
     expect(isRosImageSchema('sensor_msgs/msg/CameraInfo')).toBe(false);
   });
 

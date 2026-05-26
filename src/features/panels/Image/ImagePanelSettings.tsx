@@ -13,7 +13,7 @@ import {
 } from '../framework/settings';
 import { messageBus } from '@/core/pipeline/messageBus';
 import { useTopicSeq } from '@/core/pipeline/useMessageBus';
-import { isRawImageMessage, isRawImageTopicSchema } from './image-core/imageTypes';
+import { isRawImageMessage, isRawImageTopicSchema, IMAGE_PANEL_TOPIC_INCLUDES } from './image-core/imageTypes';
 import type { ImageConfig } from './defaults';
 
 const DEPTH_ENCODINGS = new Set(['mono16', '16uc1', '32fc1']);
@@ -111,7 +111,7 @@ export function ImagePanelSettings({
               value={config.topic}
               onChange={(topic) => setConfig({ ...config, topic })}
               topics={topics}
-              typeIncludes={['image', 'CompressedImage']}
+              typeIncludes={[...IMAGE_PANEL_TOPIC_INCLUDES]}
               placeholder={formatMessage({ id: 'panels.image.settings.field.topic.placeholder' })}
             />
           </SettingsField>

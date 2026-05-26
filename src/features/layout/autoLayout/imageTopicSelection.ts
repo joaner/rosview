@@ -43,6 +43,7 @@ export function imageTopicPriorityScore(topicName: string): number {
   if (n.includes('metadata')) return -1_000;
   let s = 0;
   if (n.includes('compressed')) s += 80;
+  if (n.includes('video')) s += 70;
   if (n.includes('image_resized')) s += 40;
   if (n.includes('/depth/')) s -= 50;
   if (n.includes('image_rect_raw') && !n.includes('compressed')) s += 25;

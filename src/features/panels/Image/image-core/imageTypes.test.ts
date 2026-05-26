@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   getCompressedKind,
+  isCompressedVideoMessage,
+  isH264CompressedFrameMessage,
+  isImagePanelTopicSchema,
   isRawImageTopicSchema,
   normalizeCompressedMime,
   prepareImageWorkerBytes,
@@ -51,9 +54,63 @@ describe('isRawImageTopicSchema', () => {
     expect(isRawImageTopicSchema('sensor_msgs/CompressedImage')).toBe(false);
   });
 
+  it('rejects CompressedVideo', () => {
+    expect(isRawImageTopicSchema('foxglove_msgs/msg/CompressedVideo')).toBe(false);
+  });
+
   it('rejects unrelated types', () => {
     expect(isRawImageTopicSchema('')).toBe(false);
     expect(isRawImageTopicSchema('sensor_msgs/msg/CameraInfo')).toBe(false);
+  });
+});
+
+describe('isCompressedVideoMessage', () => {
+  it('accepts foxglove CompressedVideo payloads', () => {
+    expect(
+      isCompressedVideoMessage({
+        timestamp: { sec: 1, nsec: 0 },
+        frame_id: 'camera',
+        format: 'h264',
+        data: new Uint8Array([1, 2, 3]),
+      }),
+    ).toBe(true);
+  });
+
+  it('rejects payloads without binary data', () => {
+    expect(isCompressedVideoMessage({ format: 'h264', data: [1, 2, 3] })).toBe(false);
+  });
+});
+
+describe('isH264CompressedFrameMessage', () => {
+  it('recognizes h264 CompressedVideo format tokens', () => {
+    expect(
+      isH264CompressedFrameMessage({
+        format: 'h264',
+        data: new Uint8Array([0]),
+      }),
+    ).toBe(true);
+  });
+
+  it('does not treat other CompressedVideo codecs as h264', () => {
+    expect(
+      isH264CompressedFrameMessage({
+        format: 'h265',
+        data: new Uint8Array([0]),
+      }),
+    ).toBe(false);
+    expect(getCompressedKind('vp9')).toBeNull();
+  });
+});
+
+describe('isImagePanelTopicSchema', () => {
+  it('accepts raw, compressed image, and compressed video schemas', () => {
+    expect(isImagePanelTopicSchema('sensor_msgs/msg/Image')).toBe(true);
+    expect(isImagePanelTopicSchema('sensor_msgs/msg/CompressedImage')).toBe(true);
+    expect(isImagePanelTopicSchema('foxglove_msgs/msg/CompressedVideo')).toBe(true);
+  });
+
+  it('rejects unrelated schemas', () => {
+    expect(isImagePanelTopicSchema('sensor_msgs/msg/CameraInfo')).toBe(false);
   });
 });
 

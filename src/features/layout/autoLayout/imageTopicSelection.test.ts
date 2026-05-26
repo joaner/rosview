@@ -42,6 +42,18 @@ describe('selectImageTopicsForAutoLayout', () => {
     expect(picked).toEqual(['/camera/left/color/image_raw/compressed']);
   });
 
+  it('includes foxglove CompressedVideo topics', () => {
+    const topics: TopicInfo[] = [
+      { name: '/camera/left/color/video', type: 'foxglove_msgs/msg/CompressedVideo' },
+      { name: '/camera/right/color/video', type: 'foxglove_msgs/msg/CompressedVideo' },
+    ];
+    const picked = selectImageTopicsForAutoLayout(topics);
+    expect(picked).toEqual([
+      '/camera/left/color/video',
+      '/camera/right/color/video',
+    ]);
+  });
+
   it('keeps distinct non-overlapping streams', () => {
     const topics: TopicInfo[] = [
       { name: '/camera/left/color/image_resized/compressed', type: 'sensor_msgs/msg/CompressedImage' },

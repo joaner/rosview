@@ -2,6 +2,7 @@
 
 export const ROS_MSG_SENSOR_IMAGE = 'sensor_msgs/msg/Image' as const;
 export const ROS_MSG_SENSOR_COMPRESSED_IMAGE = 'sensor_msgs/msg/CompressedImage' as const;
+export const ROS_MSG_FOXGLOVE_COMPRESSED_VIDEO = 'foxglove_msgs/msg/CompressedVideo' as const;
 export const ROS_MSG_JOINT_STATE = 'sensor_msgs/msg/JointState' as const;
 export const ROS_MSG_POSE_STAMPED = 'geometry_msgs/msg/PoseStamped' as const;
 export const ROS_MSG_FOXGLOVE_RAW_AUDIO = 'foxglove_msgs/msg/RawAudio' as const;
@@ -34,7 +35,9 @@ export function isJointStateSchema(type: string): boolean {
 
 export function isRosImageSchema(type: string): boolean {
   return (
-    matchesRosSchema(type, ROS_MSG_SENSOR_IMAGE) || matchesRosSchema(type, ROS_MSG_SENSOR_COMPRESSED_IMAGE)
+    matchesRosSchema(type, ROS_MSG_SENSOR_IMAGE) ||
+    matchesRosSchema(type, ROS_MSG_SENSOR_COMPRESSED_IMAGE) ||
+    matchesRosSchema(type, ROS_MSG_FOXGLOVE_COMPRESSED_VIDEO)
   );
 }
 

@@ -11,12 +11,17 @@ export function isDepthImageTopicName(name: string): boolean {
 
 /** Infer camera column (left/top/right) from topic path for auto-layout. */
 export function classifyCameraSide(topicName: string): CameraColumn | 'other' {
-  const m = topicName.match(/\/camera\/(left|right|top)\b/i);
+  const m = topicName.match(/\/camera\/(left|right|top|head)\b/i);
   if (m) {
-    return m[1].toLowerCase() as CameraColumn;
+    const side = m[1].toLowerCase();
+    if (side === 'head') {
+      return 'top';
+    }
+    return side as CameraColumn;
   }
   const lower = topicName.toLowerCase();
   const tokenized = `/${lower.replace(/[_-]+/g, '/')}/`;
+  if (tokenized.includes('/head/')) return 'top';
   if (tokenized.includes('/top/')) return 'top';
   if (tokenized.includes('/left/') && !tokenized.includes('/right/')) return 'left';
   if (tokenized.includes('/right/')) return 'right';
@@ -58,7 +63,12 @@ function takeNextAny(state: PickState): string | null {
   return next.name;
 }
 
-function buildCandidates(topics: ReadonlyArray<TopicInfo>, topicNameFilter: (name: string) => boolean): Candidate[] {
+function buildCandidates(
+  topics: ReadonlyArray<TopicInfo>,
+  topicNameFilter: (name: string) => boolean,
+  options?: { minScore?: number },
+): Candidate[] {
+  const minScore = options?.minScore ?? 0;
   return topics
     .filter((t) => isRosImageSchema(t.type) && topicNameFilter(t.name))
     .map((t) => ({
@@ -66,7 +76,7 @@ function buildCandidates(topics: ReadonlyArray<TopicInfo>, topicNameFilter: (nam
       score: imageTopicPriorityScore(t.name),
       side: classifyCameraSide(t.name),
     }))
-    .filter((c) => c.score >= 0)
+    .filter((c) => c.score >= minScore)
     .sort((a, b) => b.score - a.score || a.name.localeCompare(b.name));
 }
 
@@ -85,21 +95,27 @@ function pickOneRow(state: PickState): (string | null)[] {
 }
 
 /**
- * Plan two image rows with one unified pool (no depth-reserved row):
- * up to 3 topics per row, columns left / top / right with fallback fill.
+ * Plan color and depth rows separately: each row fills left / top(head) / right columns.
+ * Depth streams are not dropped by the color-vs-depth priority score used elsewhere.
  */
 export function planColorDepthCameraRows(topics: ReadonlyArray<TopicInfo>): {
   colorRow: (string | null)[];
   depthRow: (string | null)[];
 } {
-  const unifiedState: PickState = {
-    candidates: buildCandidates(topics, () => true),
+  const colorState: PickState = {
+    candidates: buildCandidates(topics, (name) => !isDepthImageTopicName(name)),
     usedNames: new Set(),
     usedBuckets: new Set(),
   };
-  const colorRow = pickOneRow(unifiedState);
-  const depthRow = pickOneRow(unifiedState);
-  return { colorRow, depthRow };
+  const depthState: PickState = {
+    candidates: buildCandidates(topics, (name) => isDepthImageTopicName(name), { minScore: -100 }),
+    usedNames: new Set(),
+    usedBuckets: new Set(),
+  };
+  return {
+    colorRow: pickOneRow(colorState),
+    depthRow: pickOneRow(depthState),
+  };
 }
 
 /**

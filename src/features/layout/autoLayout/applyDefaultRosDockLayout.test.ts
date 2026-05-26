@@ -29,6 +29,7 @@ describe('buildDefaultRosFoxgloveLayoutData', () => {
       { name: '/camera/top/depth/z/compressed', type: 'sensor_msgs/msg/CompressedImage' },
       { name: '/io/pose/left', type: 'geometry_msgs/msg/PoseStamped [ros2msg]' },
       { name: '/io/pose/right', type: 'geometry_msgs/msg/PoseStamped [jsonschema]' },
+      { name: '/joint_states', type: 'sensor_msgs/msg/JointState' },
     ];
 
     const data = buildDefaultRosFoxgloveLayoutData(topics);
@@ -99,7 +100,7 @@ describe('buildDefaultRosFoxgloveLayoutData', () => {
     expect(getPanelTypeFromId(pose3dRow.second as string)).toBe('3D');
   });
 
-  it('creates only full-width 3D row when no PoseStamped topics are present', () => {
+  it('omits 3D when only image topics are present', () => {
     const topics: TopicInfo[] = [
       { name: '/camera/left/color/a/compressed', type: 'sensor_msgs/msg/CompressedImage' },
       { name: '/camera/right/color/a/compressed', type: 'sensor_msgs/msg/CompressedImage' },
@@ -110,7 +111,38 @@ describe('buildDefaultRosFoxgloveLayoutData', () => {
     const ids = collectMosaicPanelIds(root);
     const panelTypes = ids.map((id) => getPanelTypeFromId(id));
     expect(panelTypes.filter((type) => type === 'Pose')).toHaveLength(0);
-    expect(panelTypes.filter((type) => type === '3D')).toHaveLength(1);
+    expect(panelTypes.filter((type) => type === '3D')).toHaveLength(0);
+    expect(panelTypes.filter((type) => type === 'Image')).toHaveLength(3);
+  });
+
+  it('builds two image rows for six CompressedVideo streams without 3D', () => {
+    const topics: TopicInfo[] = [
+      { name: '/head/color/image', type: 'foxglove_msgs/msg/CompressedVideo [ros2msg]' },
+      { name: '/head/depth/image', type: 'foxglove_msgs/msg/CompressedVideo [ros2msg]' },
+      { name: '/left/color/image', type: 'foxglove_msgs/msg/CompressedVideo [ros2msg]' },
+      { name: '/left/depth/image', type: 'foxglove_msgs/msg/CompressedVideo [ros2msg]' },
+      { name: '/right/color/image', type: 'foxglove_msgs/msg/CompressedVideo [ros2msg]' },
+      { name: '/right/depth/image', type: 'foxglove_msgs/msg/CompressedVideo [ros2msg]' },
+    ];
+    const data = buildDefaultRosFoxgloveLayoutData(topics);
+    const ids = collectMosaicPanelIds(data.layout);
+    const panelTypes = ids.map((id) => getPanelTypeFromId(id));
+    expect(panelTypes.filter((type) => type === 'Image')).toHaveLength(6);
+    expect(panelTypes.filter((type) => type === '3D')).toHaveLength(0);
+    expect(panelTypes.filter((type) => type === 'RawMessages')).toHaveLength(0);
+
+    const imageTopics = Object.values(data.configById)
+      .map((config) => (config as { topic?: string }).topic)
+      .filter((topic): topic is string => Boolean(topic))
+      .sort();
+    expect(imageTopics).toEqual([
+      '/head/color/image',
+      '/head/depth/image',
+      '/left/color/image',
+      '/left/depth/image',
+      '/right/color/image',
+      '/right/depth/image',
+    ]);
   });
 
   it('BVH-only dataset: single 3D panel only; dockview root still wraps to branch for fromJSON', () => {
@@ -132,18 +164,17 @@ describe('buildDefaultRosFoxgloveLayoutData', () => {
     expect(imported.dockviewState?.grid.root.type).toBe('branch');
   });
 
-  it('non-BVH single-stack layout still appends RawMessages when only 3D is eligible', () => {
+  it('non-BVH single-stack layout still appends RawMessages when no panels are eligible', () => {
     const topics: TopicInfo[] = [{ name: '/scan', type: 'sensor_msgs/msg/LaserScan' }];
     const data = buildDefaultRosFoxgloveLayoutData(topics);
     const root = data.layout as FoxgloveMosaicNode;
     const ids = collectMosaicPanelIds(root);
-    expect(ids.length).toBeGreaterThanOrEqual(2);
     const panelTypes = ids.map((id) => getPanelTypeFromId(id));
-    expect(panelTypes).toContain('3D');
+    expect(panelTypes).not.toContain('3D');
     expect(panelTypes).toContain('RawMessages');
 
     const imported = importFoxgloveLayout(data, { unavailableComponent: 'Unavailable' });
-    expect(imported.restored).toBeGreaterThanOrEqual(2);
+    expect(imported.restored).toBe(1);
     const rawSnapshots = Object.values(imported.panelStates).filter((s) => s.type === 'RawMessages');
     expect(rawSnapshots).toHaveLength(1);
     expect((rawSnapshots[0]?.config as { topic?: string }).topic).toBe('/scan');

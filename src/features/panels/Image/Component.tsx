@@ -9,15 +9,13 @@ import type {
   ImageRenderOptions,
   ImageRenderWorkerEvent,
   ImageRenderWorkerRequest,
-  ImageWorkerFrameEnvelope,
 } from './image-core/imageWorkerProtocol';
 import {
-  getCompressedKind,
-  isCompressedImageMessage,
-  isRawImageMessage,
-  prepareImageWorkerBytes,
+  IMAGE_PANEL_TOPIC_INCLUDES,
   type ImageSurfaceStatus,
 } from './image-core/imageTypes';
+import { repairH264Seek } from './image-core/h264SeekRepair';
+import { isH264MessageEvent, toWorkerFrame } from './image-core/messageFrameAdapter';
 import type { ImageConfig } from './defaults';
 import { TopicQuickPicker } from '../framework/TopicQuickPicker';
 import ImageRenderWorkerClass from './image-core/ImageRender.worker.ts?worker&inline';
@@ -242,17 +240,23 @@ export const ImagePanel: React.FC<ImagePanelProps> = (props) => {
     };
   }, [player, mainConsumerId, h264ConsumerId, topic]);
 
-  // Reset on playback rewind
+  // Reset on playback rewind; for H264, rebuild decoder state from the nearest keyframe.
   useEffect(() => {
     return player.subscribeCurrentTime((time) => {
       const nowNs = toNano(time);
       const previousNs = lastPlaybackTimeNsRef.current;
       if (previousNs != null && nowNs + 5_000_000n < previousNs) {
-        workerRef.current?.postMessage({ type: 'reset' } satisfies ImageRenderWorkerRequest);
+        const worker = workerRef.current;
+        if (worker && topic && h264ModeRef.current) {
+          worker.postMessage({ type: 'reset' } satisfies ImageRenderWorkerRequest);
+          void repairH264Seek(player, worker, topic, time);
+        } else {
+          workerRef.current?.postMessage({ type: 'reset' } satisfies ImageRenderWorkerRequest);
+        }
       }
       lastPlaybackTimeNsRef.current = nowNs;
     });
-  }, [player]);
+  }, [player, topic]);
 
   // Send color/depth decode options when they change — triggers immediate redraw in worker
   useEffect(() => {
@@ -303,7 +307,7 @@ export const ImagePanel: React.FC<ImagePanelProps> = (props) => {
         <TopicQuickPicker
           value={topic}
           onChange={(nextTopic) => setConfig((prev) => ({ ...prev, topic: nextTopic }))}
-          typeIncludes={['image', 'CompressedImage']}
+          typeIncludes={[...IMAGE_PANEL_TOPIC_INCLUDES]}
           placeholder={formatMessage({ id: 'panels.framework.topicPicker.imagePlaceholder' })}
           className="min-w-0 flex-1"
           triggerClassName="border-zinc-700 bg-zinc-950 text-zinc-100 hover:bg-zinc-900 hover:text-zinc-50"
@@ -359,50 +363,6 @@ function isUiStatusEqual(a: ImageSurfaceStatus, b: ImageSurfaceStatus): boolean 
   );
 }
 
-type PreparedImageWorkerFrame = {
-  frame: ImageWorkerFrameEnvelope;
-  transfer: Transferable[];
-};
-
-function toWorkerFrame(messageEvent: RosMessageEvent): PreparedImageWorkerFrame | null {
-  const message = messageEvent.message;
-  if (isCompressedImageMessage(message)) {
-    const payload = prepareImageWorkerBytes(message.data);
-    if (!payload) {
-      return null;
-    }
-    return {
-      frame: {
-        kind: 'compressed',
-        receiveTime: messageEvent.receiveTime,
-        format: message.format,
-        data: payload.data,
-      },
-      transfer: payload.transfer,
-    };
-  }
-  if (isRawImageMessage(message)) {
-    const payload = prepareImageWorkerBytes(message.data);
-    if (!payload) {
-      return null;
-    }
-    return {
-      frame: {
-        kind: 'raw',
-        receiveTime: messageEvent.receiveTime,
-        encoding: message.encoding,
-        width: message.width,
-        height: message.height,
-        step: message.step,
-        isBigEndian: message.is_bigendian,
-        data: payload.data,
-      },
-      transfer: payload.transfer,
-    };
-  }
-  return null;
-}
-
 function postImageFrame(worker: Worker, messageEvent: RosMessageEvent): void {
   const next = toWorkerFrame(messageEvent);
   if (!next) {
@@ -412,9 +372,4 @@ function postImageFrame(worker: Worker, messageEvent: RosMessageEvent): void {
     { type: 'frame', frame: next.frame } satisfies ImageRenderWorkerRequest,
     next.transfer,
   );
-}
-
-function isH264MessageEvent(messageEvent: RosMessageEvent): boolean {
-  const message = messageEvent.message;
-  return isCompressedImageMessage(message) && getCompressedKind(message.format) === 'h264';
 }
