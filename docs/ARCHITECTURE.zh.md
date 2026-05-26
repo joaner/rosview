@@ -47,7 +47,7 @@
 |------|--------|------------|------|
 | **MCAP** | `@mcap/core` + `@foxglove/mcap-support` | 完整支持（索引读取） | 首选格式，有 chunk 索引可做高效区间查询 |
 | **ROS1 .bag** | `@foxglove/rosbag` | 完整支持（chunk 索引） | 通过 `CachedFilelike` + `BrowserHttpReader` 实现 |
-| **ROS2 .db3** | `@foxglove/rosbag2-web` + `@foxglove/sql.js` (WASM) | 本地支持 / 远程需整文件下载 | SQLite 格式限制，远程大文件建议转 MCAP |
+| **ROS2 .db3** | `@foxglove/rosbag2` + `sql.js` (WASM) | 本地支持 / 远程需整文件下载 | SQLite 格式限制，远程大文件建议转 MCAP |
 | **HDF5** | `@ioai/hdf5` (WASM) | 部分读取 | 科学数据；浏览器内解析 |
 | **BVH** | 内置解析 | 不适用（非 ROS bag 类流） | 骨骼动作捕捉动画回放 |
 
@@ -235,12 +235,12 @@
 | `@mcap/core` | MCAP 文件格式读写核心（索引读取 + 流式读取） |
 | `@foxglove/mcap-support` | MCAP 通道解析、Schema 到 JS 对象的桥接、解压处理器 |
 | `@foxglove/rosbag` | ROS1 .bag 文件读取（支持 BlobReader + 远程 CachedFilelike） |
-| `@foxglove/rosbag2-web` | ROS2 .db3 文件读取（基于 `@foxglove/sql.js` WASM） |
+| `@foxglove/rosbag2` | ROS2 .db3 文件读取（SQLite 查询 + CDR 解码） |
 | `@foxglove/rosmsg` | ROS 消息定义解析 |
 | `@foxglove/rosmsg-serialization` | ROS1 消息反序列化 |
 | `@foxglove/rosmsg2-serialization` | ROS2 CDR 消息反序列化 |
 | `comlink` ^4.4 | Web Worker 双向 RPC（支持 Transferable） |
-| `@foxglove/sql.js` | SQLite WASM 运行时（用于 .db3 文件读取） |
+| `sql.js` | SQLite WASM 运行时（用于 .db3 文件读取） |
 
 ### 4.5 可视化
 
@@ -878,11 +878,8 @@ rosview/
     "@mcap/core": "^2.3.2",
     "@foxglove/mcap-support": "workspace:*",
     "@foxglove/rosbag": "^3.1.2",
-    "@foxglove/rosbag2-web": "^2.1.2",
-    "@foxglove/rosmsg": "^5.0.3",
-    "@foxglove/rosmsg-serialization": "^3.1.1",
-    "@foxglove/rosmsg2-serialization": "^3.0.3",
-    "@foxglove/sql.js": "^0.0.4",
+    "@foxglove/rosbag2": "^6.0.0",
+    "sql.js": "^1.14.1",
 
     "comlink": "^4.4.2",
 

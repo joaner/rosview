@@ -16,7 +16,7 @@ ROS View is a **browser-native** playback and visualization tool for robotics re
 |--------|-------------|
 | **MCAP** | Preferred format. Chunk-indexed for efficient range queries. |
 | **ROS1 `.bag`** | Chunk-indexed binary log format. |
-| **ROS2 `.db3`** | SQLite-based format via `@foxglove/sql.js` WASM. |
+| **ROS2 `.db3`** | SQLite-based format via `sql.js` WASM. |
 | **HDF5** | via `@ioai/hdf5` WASM. |
 | **BVH** | Motion-capture skeleton animation. |
 
@@ -55,7 +55,7 @@ ROS View is a **browser-native** playback and visualization tool for robotics re
 |--------|---------|---------------|-------|
 | **MCAP** | `@mcap/core` + `@foxglove/mcap-support` | Full (chunk index) | Preferred; efficient interval queries |
 | **ROS1 `.bag`** | `@foxglove/rosbag` | Full (chunk index) | via `CachedFilelike` + `BrowserHttpReader` |
-| **ROS2 `.db3`** | `@foxglove/rosbag2-web` + `@foxglove/sql.js` (WASM) | Local / remote requires full download | SQLite limitation; convert to MCAP for large remote files |
+| **ROS2 `.db3`** | `@foxglove/rosbag2` + `sql.js` (WASM) | Local / remote requires full download | SQLite limitation; convert to MCAP for large remote files |
 
 **Supported message encodings:**
 
@@ -242,12 +242,12 @@ Fixed-width sidebar (collapsible) on the left with three tabs:
 | `@mcap/core` | MCAP file format read/write core (indexed + streaming) |
 | `@foxglove/mcap-support` | MCAP channel parsing, schema-to-JS bridging, decompression handlers |
 | `@foxglove/rosbag` | ROS1 `.bag` reader (BlobReader + remote CachedFilelike) |
-| `@foxglove/rosbag2-web` | ROS2 `.db3` reader (`@foxglove/sql.js` WASM) |
+| `@foxglove/rosbag2` | ROS2 `.db3` reader (SQLite queries + CDR decode) |
 | `@foxglove/rosmsg` | ROS message definition parsing |
 | `@foxglove/rosmsg-serialization` | ROS1 message deserialization |
 | `@foxglove/rosmsg2-serialization` | ROS2 CDR deserialization |
 | `comlink` ^4.4 | Web Worker bidirectional RPC (Transferable support) |
-| `@foxglove/sql.js` | SQLite WASM runtime (for `.db3` files) |
+| `sql.js` | SQLite WASM runtime (for `.db3` files) |
 
 ### 4.5 Visualization
 

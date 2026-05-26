@@ -10,10 +10,10 @@ THIRD-PARTY SOFTWARE NOTICES
 This product depends on third-party packages. Their licenses are reproduced
 below or can be found in each package's LICENSE file under node_modules/.
 
-@foxglove/rosbag, @foxglove/rosbag2-web, @foxglove/rosmsg,
+@foxglove/rosbag, @foxglove/rosbag2, @foxglove/rosmsg,
 @foxglove/rosmsg-serialization, @foxglove/rosmsg2-serialization,
 @foxglove/message-definition, @foxglove/omgidl-parser,
-@foxglove/omgidl-serialization, @foxglove/ros2idl-parser, @foxglove/sql.js
+@foxglove/omgidl-serialization, @foxglove/ros2idl-parser, sql.js
   Copyright 2021-2024 Foxglove Technologies Inc.
   Licensed under the MIT License.
   https://github.com/foxglove

@@ -156,7 +156,7 @@ export function FileLoader() {
 |--------|-----------|-------|
 | MCAP | `.mcap` | ROS 2 / robotics standard; zstd and lz4 compression |
 | ROS 1 bag | `.bag` | ROS 1 recording format |
-| ROS 2 SQLite | `.db3` | ROS 2 default recording (via `@foxglove/sql.js` WASM) |
+| ROS 2 SQLite | `.db3` | ROS 2 default recording (via `sql.js` WASM) |
 | HDF5 | `.h5`, `.hdf5` | Scientific data; partial read via `@ioai/hdf5` |
 | BVH | `.bvh` | Skeletal motion capture animation |
 

@@ -65,7 +65,7 @@ import { resolveEmbedChrome, type RosViewerChrome, type RosViewerMode } from './
 import { RosViewerLayoutProvider } from './RosViewerLayoutContext';
 import type { RosViewExtension } from '@/core/extensions/types';
 import { toast } from 'sonner';
-import sqlWasmUrl from "@foxglove/sql.js/dist/sql-wasm.wasm?url";
+import sqlWasmUrl from 'sql.js/dist/sql-wasm.wasm?url';
 
 let sqlWasmBinaryPromise: Promise<ArrayBuffer> | null = null;
 

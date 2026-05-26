@@ -155,7 +155,7 @@ export function FileLoader() {
 |------|--------|------|
 | MCAP | `.mcap` | ROS 2 / 机器人常用；zstd、lz4 压缩 |
 | ROS 1 bag | `.bag` | ROS 1 录制格式 |
-| ROS 2 SQLite | `.db3` | ROS 2 默认录制（`@foxglove/sql.js` WASM） |
+| ROS 2 SQLite | `.db3` | ROS 2 默认录制（`sql.js` WASM） |
 | HDF5 | `.h5`, `.hdf5` | 科学数据；`@ioai/hdf5` WASM 读取 |
 | BVH | `.bvh` | 动作捕捉骨骼动画 |
 

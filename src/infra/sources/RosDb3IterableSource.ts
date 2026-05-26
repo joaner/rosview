@@ -1,4 +1,5 @@
-import { ROS2_TO_DEFINITIONS, Rosbag2, SqliteSqljs } from "@foxglove/rosbag2-web";
+import { ROS2_TO_DEFINITIONS, Rosbag2 } from '@foxglove/rosbag2';
+import { SqliteSqljsDb } from './SqliteSqljsDb';
 import { stringify } from "@foxglove/rosmsg";
 import type { Initialization, MessageEvent, RosDatatypes, Time, TopicInfo, TopicStats } from '@/core/types/ros';
 import type { GetAdjacentMessageArgs, IIterableSource } from "./IIterableSource";
@@ -51,11 +52,11 @@ export class RosDb3IterableSource implements IIterableSource {
   }
 
   async initialize(): Promise<Initialization> {
-    await SqliteSqljs.Initialize({
+    await SqliteSqljsDb.initialize({
       ...(this._sqlWasmBinary ? { wasmBinary: this._sqlWasmBinary } : {}),
     });
 
-    const dbs = this._params.files.map((file) => new SqliteSqljs(file));
+    const dbs = this._params.files.map((file) => new SqliteSqljsDb(file));
     const bag = new Rosbag2(dbs, { timeType: "sec,nsec" });
     await bag.open();
     this._bag = bag;
