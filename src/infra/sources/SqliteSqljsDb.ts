@@ -78,18 +78,19 @@ export class SqliteSqljsDb implements SqliteDb {
     this.#context = { db, idToTopic, topicNameToId };
   }
 
-  async close(): Promise<void> {
+  close(): Promise<void> {
     if (this.#context != undefined) {
       this.#context.db.close();
       this.#context = undefined;
     }
+    return Promise.resolve();
   }
 
-  async readTopics(): Promise<TopicDefinition[]> {
+  readTopics(): Promise<TopicDefinition[]> {
     if (this.#context == undefined) {
       throw new Error('Call open() before reading topics');
     }
-    return Array.from(this.#context.idToTopic.values());
+    return Promise.resolve(Array.from(this.#context.idToTopic.values()));
   }
 
   readMessages(opts: MessageReadOptions = {}): AsyncIterableIterator<RawMessage> {
@@ -134,7 +135,7 @@ export class SqliteSqljsDb implements SqliteDb {
         } else {
           query += ' and topic_id = ?';
         }
-        args.push(topicIds[0]!);
+        args.push(topicIds[0]);
       } else {
         if (args.length === 0) {
           query += ` where topic_id in (${topicIds.map(() => '?').join(',')})`;
@@ -150,7 +151,7 @@ export class SqliteSqljsDb implements SqliteDb {
     return new RawMessageIterator(dbIterator, this.#context.idToTopic);
   }
 
-  async timeRange(): Promise<[min: Time, max: Time]> {
+  timeRange(): Promise<[min: Time, max: Time]> {
     if (this.#context == undefined) {
       throw new Error('Call open() before retrieving the time range');
     }
@@ -160,10 +161,10 @@ export class SqliteSqljsDb implements SqliteDb {
       'select cast(min(timestamp) as TEXT), cast(max(timestamp) as TEXT) from messages',
     )[0]?.values[0] ?? ['0', '0'];
     const [minNsec, maxNsec] = res as [string | null, string | null];
-    return [fromNanoSec(BigInt(minNsec ?? 0n)), fromNanoSec(BigInt(maxNsec ?? 0n))];
+    return Promise.resolve([fromNanoSec(BigInt(minNsec ?? 0n)), fromNanoSec(BigInt(maxNsec ?? 0n))]);
   }
 
-  async messageCounts(): Promise<Map<string, number>> {
+  messageCounts(): Promise<Map<string, number>> {
     if (this.#context == undefined) {
       throw new Error('Call open() before retrieving message counts');
     }
@@ -179,10 +180,10 @@ export class SqliteSqljsDb implements SqliteDb {
     for (const [topicName, count] of rows) {
       counts.set(topicName as string, count as number);
     }
-    return counts;
+    return Promise.resolve(counts);
   }
 
-  async topicTimeRanges(): Promise<Map<string, [min: Time, max: Time]>> {
+  topicTimeRanges(): Promise<Map<string, [min: Time, max: Time]>> {
     if (this.#context == undefined) {
       throw new Error('Call open() before retrieving topic time ranges');
     }
@@ -202,7 +203,7 @@ export class SqliteSqljsDb implements SqliteDb {
         fromNanoSec(BigInt(maxNsec ?? 0n)),
       ]);
     }
-    return ranges;
+    return Promise.resolve(ranges);
   }
 }
 
