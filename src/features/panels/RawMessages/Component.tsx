@@ -61,7 +61,7 @@ const MAX_VISIBLE_PATCH_ROWS = 1200;
 const MAX_OBJECT_PREVIEW_FIELDS = 3;
 const MAX_PREVIEW_STRING_LENGTH = 80;
 const LARGE_BINARY_THRESHOLD = 1024;
-const COMPACT_BINARY_PREVIEW_BYTES = 8;
+const COMPACT_BINARY_PREVIEW_BYTES = 32;
 
 function toHex(data: Uint8Array): string {
   let out = '';
