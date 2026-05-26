@@ -1,3 +1,5 @@
+import type { MessageEvent } from '@/core/types/ros';
+
 export interface FlatRow {
   id: string;
   path: string;
@@ -11,6 +13,11 @@ export interface ShapeBuildResult {
   signature: string;
   rows: FlatRow[];
 }
+
+const MESSAGE_EVENT_META_ROWS: FlatRow[] = [
+  { id: 'log_time', path: 'log_time', key: 'log_time', depth: 0, expandable: false, parentIsArray: false },
+  { id: 'publish_time', path: 'publish_time', key: 'publish_time', depth: 0, expandable: false, parentIsArray: false },
+];
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   if (!value || typeof value !== 'object') return false;
@@ -80,4 +87,20 @@ export function buildRowsForShape(
 
   walk(root, 'message', 'message', 0, false);
   return { rows, signature: signatureParts.join('|') };
+}
+
+export function buildRowsForMessageEvent(
+  event: MessageEvent,
+  maxExpandedDepth: number,
+  maxRows: number,
+): ShapeBuildResult {
+  const messageShape = buildRowsForShape(
+    event.message,
+    maxExpandedDepth,
+    Math.max(0, maxRows - MESSAGE_EVENT_META_ROWS.length),
+  );
+  return {
+    rows: [...MESSAGE_EVENT_META_ROWS, ...messageShape.rows],
+    signature: `log_time:time|publish_time:time|${messageShape.signature}`,
+  };
 }

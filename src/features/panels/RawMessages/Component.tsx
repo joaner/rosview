@@ -4,15 +4,16 @@ import { useIntl } from 'react-intl';
 import { toast } from 'sonner';
 import { messageBus } from '@/core/pipeline/messageBus';
 import { useMessagePipeline } from '@/core/pipeline/useMessagePipeline';
-import type { MessageEvent } from '@/core/types/ros';
+import type { MessageEvent, Time } from '@/core/types/ros';
 import type { MessagePipelineState } from '@/core/pipeline/store';
 import type { Player } from '@/core/types/player';
 import { pickDefaultRawMessagesTopic } from '@/features/layout/autoLayout/pickDefaultRawMessagesTopic';
 import { isRosImageSchema } from '@/shared/ros/rosMessageTypes';
+import { formatLocalTimestamp } from '@/shared/utils/time';
 import { scheduleFrame } from '@/shared/utils/rafScheduler';
 import { TopicQuickPicker } from '../framework/TopicQuickPicker';
 import type { RawMessagesConfig } from './defaults';
-import { buildRowsForShape, type FlatRow } from './shapeTree';
+import { buildRowsForMessageEvent, type FlatRow } from './shapeTree';
 
 interface RawMessagesPanelProps {
   player: Player;
@@ -88,10 +89,24 @@ function pathToParts(path: string): string[] {
   return path.split('.').filter((part) => part.length > 0);
 }
 
-function readValueAtPath(root: unknown, path: string): unknown {
-  if (!path || path === 'message') return root;
+function isRosTime(value: unknown): value is Time {
+  if (!isPlainObject(value)) return false;
+  return typeof value.sec === 'number' && typeof value.nsec === 'number';
+}
+
+function formatRosTime(time: Time): string {
+  const nsecPadded = time.nsec.toString().padStart(9, '0');
+  return `${time.sec}.${nsecPadded} (${formatLocalTimestamp(time)})`;
+}
+
+function readValueAtPath(event: MessageEvent | null | undefined, path: string): unknown {
+  if (!event) return undefined;
+  if (path === 'log_time') return event.receiveTime;
+  if (path === 'publish_time') return event.publishTime;
+  if (!path || path === 'message') return event.message;
+  if (!path.startsWith('message.')) return undefined;
   const parts = pathToParts(path.replace(/^message\./, ''));
-  let current: unknown = root;
+  let current: unknown = event.message;
   for (const part of parts) {
     if (Array.isArray(current)) {
       const idx = Number(part);
@@ -172,6 +187,9 @@ export function describeValue(
   maxBinaryPreviewBytes: number,
   options?: DescribeValueOptions,
 ): ValueVisual {
+  if (isRosTime(value)) {
+    return { text: formatRosTime(value), kind: 'number' };
+  }
   if (value instanceof Uint8Array) {
     if (options?.hideBinaryHex || value.byteLength > LARGE_BINARY_THRESHOLD) {
       return {
@@ -442,7 +460,7 @@ export const RawMessagesPanel: React.FC<RawMessagesPanelProps> = ({
       for (let i = 0; i < maxPatchRows; i++) {
         const row = patchRows[i];
         if (!row) continue;
-        const value = readValueAtPath(message.message, row.path);
+        const value = readValueAtPath(message, row.path);
         const visual = describeValue(value, previewBytes, { hideBinaryHex: hideHex });
         latestValueVisualRef.current.set(row.path, visual);
         const previousText = valueNodeRefs.current.get(row.path)?.textContent ?? null;
@@ -503,7 +521,7 @@ export const RawMessagesPanel: React.FC<RawMessagesPanelProps> = ({
     }
 
     const { maxExpandedDepth: depth, maxRows: rowLimit } = configRef.current;
-    const nextShape = buildRowsForShape(message.message, depth, rowLimit);
+    const nextShape = buildRowsForMessageEvent(message, depth, rowLimit);
     if (nextShape.signature !== shapeSignatureRef.current) {
       shapeSignatureRef.current = nextShape.signature;
       shapeRowsRef.current = nextShape.rows;
@@ -513,7 +531,7 @@ export const RawMessagesPanel: React.FC<RawMessagesPanelProps> = ({
       if (!didInitializeExpansionRef.current) {
         const nextExpanded = new Set<string>(['message']);
         for (const row of nextShape.rows) {
-          if (row.depth === 1 && row.expandable) {
+          if (row.depth === 1 && row.expandable && row.path.startsWith('message.')) {
             nextExpanded.add(row.path);
           }
         }
@@ -630,7 +648,7 @@ export const RawMessagesPanel: React.FC<RawMessagesPanelProps> = ({
       valueNodeRefs.current.set(path, node);
       let initial = latestValueVisualRef.current.get(path);
       if (initial == null && latestRef.current) {
-        const value = readValueAtPath(latestRef.current.message, path);
+        const value = readValueAtPath(latestRef.current, path);
         const { maxBinaryPreviewBytes: previewBytes, isImageTopic: hideHex } = configRef.current;
         initial = describeValue(value, previewBytes, { hideBinaryHex: hideHex });
         latestValueVisualRef.current.set(path, initial);
@@ -655,7 +673,7 @@ export const RawMessagesPanel: React.FC<RawMessagesPanelProps> = ({
 
   const copyField = useCallback(
     async (path: string) => {
-      const value = readValueAtPath(latestRef.current?.message, path);
+      const value = readValueAtPath(latestRef.current, path);
       const serialized = serializeForCopy(value, binaryCopyFormat);
       const text =
         typeof serialized === 'string' || typeof serialized === 'number' || typeof serialized === 'boolean'

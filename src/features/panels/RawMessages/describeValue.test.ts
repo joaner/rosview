@@ -20,4 +20,10 @@ describe('describeValue', () => {
     const visual = describeValue(value, 256, { hideBinaryHex: true });
     expect(visual.text).toBe('Uint8Array(3) [preview hidden]');
   });
+
+  it('formats ROS time values', () => {
+    const visual = describeValue({ sec: 100, nsec: 500_000_000 }, 256);
+    expect(visual.text).toContain('100.500000000');
+    expect(visual.kind).toBe('number');
+  });
 });
