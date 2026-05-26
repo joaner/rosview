@@ -38,3 +38,4 @@ yarn.lock
 /public/examples/
 /test-results/
 /playwright-report/
+.tmp-urdf-debug-*/

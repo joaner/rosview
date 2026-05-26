@@ -1,8 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
 import { McapStreamReader, McapWriter } from '@mcap/core';
+import { processMcapBuffer } from './mcapProcessor';
 import { generatePythonScript, generateTypeScriptScript } from './scriptTemplates';
 import type { UrdfDebugRecipe } from './recipe';
 
@@ -41,7 +39,7 @@ class BufferWritable {
     return this.#pos;
   }
 
-  write(buffer: Uint8Array) {
+  async write(buffer: Uint8Array) {
     const b = Buffer.from(buffer);
     this.#chunks.push(b);
     this.#pos += BigInt(b.byteLength);
@@ -53,7 +51,7 @@ class BufferWritable {
   }
 }
 
-async function writeFixtureMcap(outputPath: string): Promise<void> {
+async function buildFixtureMcap(): Promise<Uint8Array> {
   const writable = new BufferWritable();
   const writer = new McapWriter({
     writable,
@@ -95,12 +93,12 @@ async function writeFixtureMcap(outputPath: string): Promise<void> {
   });
 
   await writer.end();
-  writeFileSync(outputPath, writable.getBuffer());
+  return writable.getBuffer();
 }
 
-function listTopics(mcapPath: string): string[] {
+function listTopics(mcap: Uint8Array): string[] {
   const reader = new McapStreamReader();
-  reader.append(readFileSync(mcapPath));
+  reader.append(mcap);
   const topics = new Set<string>();
   for (let record = reader.nextRecord(); record; record = reader.nextRecord()) {
     if (record.type === 'Channel') {
@@ -110,9 +108,9 @@ function listTopics(mcapPath: string): string[] {
   return [...topics].sort();
 }
 
-function readRobotDescription(mcapPath: string): string {
+function readRobotDescription(mcap: Uint8Array): string {
   const reader = new McapStreamReader();
-  reader.append(readFileSync(mcapPath));
+  reader.append(mcap);
   const topicsByChannel = new Map<number, string>();
   let robotDescription = '';
   for (let record = reader.nextRecord(); record; record = reader.nextRecord()) {
@@ -166,25 +164,15 @@ describe('scriptTemplates', () => {
   });
 
   it('TypeScript processor rewrites test MCAP with /tf and /robot_description', async () => {
-    const dir = mkdtempSync(join(process.cwd(), '.tmp-urdf-debug-'));
-    const inputPath = join(dir, 'input.mcap');
-    const outputPath = join(dir, 'out.mcap');
-    const urdfPath = join(dir, 'test.urdf');
-    const scriptPath = join(dir, 'process.mjs');
-    const recipePath = join(dir, 'recipe.json');
+    const input = await buildFixtureMcap();
+    const { output } = await processMcapBuffer({
+      input,
+      recipe: sampleRecipe,
+      urdfXml: FIXTURE_URDF,
+      overwriteTopics: true,
+    });
 
-    await writeFixtureMcap(inputPath);
-    writeFileSync(urdfPath, FIXTURE_URDF);
-    writeFileSync(recipePath, JSON.stringify(sampleRecipe, null, 2));
-    writeFileSync(scriptPath, generateTypeScriptScript(sampleRecipe));
-
-    execFileSync(
-      'node',
-      [scriptPath, inputPath, outputPath, recipePath, urdfPath, '--overwrite-topics'],
-      { stdio: 'pipe', cwd: process.cwd() },
-    );
-
-    const topics = listTopics(outputPath);
+    const topics = listTopics(output);
     expect(topics).toContain('/tf');
     expect(topics).toContain('/robot_description');
     expect(topics).toContain('/joint_states');
@@ -195,25 +183,15 @@ describe('scriptTemplates', () => {
       ...sampleRecipe,
       urdf: { rotateMeshVisuals: true, visualRpyOffset: [0, 0, 0] },
     };
-    const dir = mkdtempSync(join(process.cwd(), '.tmp-urdf-debug-'));
-    const inputPath = join(dir, 'input.mcap');
-    const outputPath = join(dir, 'out.mcap');
-    const urdfPath = join(dir, 'test.urdf');
-    const scriptPath = join(dir, 'process.mjs');
-    const recipePath = join(dir, 'recipe.json');
+    const input = await buildFixtureMcap();
+    const { output } = await processMcapBuffer({
+      input,
+      recipe,
+      urdfXml: NO_ORIGIN_MESH_URDF,
+      overwriteTopics: true,
+    });
 
-    await writeFixtureMcap(inputPath);
-    writeFileSync(urdfPath, NO_ORIGIN_MESH_URDF);
-    writeFileSync(recipePath, JSON.stringify(recipe, null, 2));
-    writeFileSync(scriptPath, generateTypeScriptScript(recipe));
-
-    execFileSync(
-      'node',
-      [scriptPath, inputPath, outputPath, recipePath, urdfPath, '--overwrite-topics'],
-      { stdio: 'pipe', cwd: process.cwd() },
-    );
-
-    const robotDescription = readRobotDescription(outputPath);
+    const robotDescription = readRobotDescription(output);
     expect(robotDescription).toContain('rpy="-1.5707963267948966 0 0"');
   });
 });
