@@ -61,6 +61,7 @@ const MAX_VISIBLE_PATCH_ROWS = 1200;
 const MAX_OBJECT_PREVIEW_FIELDS = 3;
 const MAX_PREVIEW_STRING_LENGTH = 80;
 const LARGE_BINARY_THRESHOLD = 1024;
+const COMPACT_BINARY_PREVIEW_BYTES = 8;
 
 function toHex(data: Uint8Array): string {
   let out = '';
@@ -191,13 +192,11 @@ export function describeValue(
     return { text: formatRosTime(value), kind: 'number' };
   }
   if (value instanceof Uint8Array) {
-    if (options?.hideBinaryHex || value.byteLength > LARGE_BINARY_THRESHOLD) {
-      return {
-        text: `Uint8Array(${value.byteLength}) [preview hidden]`,
-        kind: 'binary',
-      };
-    }
-    const head = value.subarray(0, Math.min(value.byteLength, maxBinaryPreviewBytes));
+    const previewLength =
+      options?.hideBinaryHex || value.byteLength > LARGE_BINARY_THRESHOLD
+        ? COMPACT_BINARY_PREVIEW_BYTES
+        : Math.min(value.byteLength, maxBinaryPreviewBytes);
+    const head = value.subarray(0, previewLength);
     return {
       text: `Uint8Array(${value.byteLength}) 0x${toHex(head)}${value.byteLength > head.byteLength ? '...' : ''}`,
       kind: 'binary',

@@ -9,16 +9,18 @@ describe('describeValue', () => {
     expect(visual.kind).toBe('binary');
   });
 
-  it('hides hex preview for large binary buffers', () => {
+  it('shows compact hex preview for large binary buffers', () => {
     const value = new Uint8Array(2048);
+    value[0] = 0xff;
+    value[7] = 0x00;
     const visual = describeValue(value, 256);
-    expect(visual.text).toBe('Uint8Array(2048) [preview hidden]');
+    expect(visual.text).toBe('Uint8Array(2048) 0xff00000000000000...');
   });
 
-  it('hides hex preview for image topics regardless of size', () => {
-    const value = new Uint8Array([1, 2, 3]);
+  it('shows compact hex preview for image topics regardless of size', () => {
+    const value = new Uint8Array([0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09]);
     const visual = describeValue(value, 256, { hideBinaryHex: true });
-    expect(visual.text).toBe('Uint8Array(3) [preview hidden]');
+    expect(visual.text).toBe('Uint8Array(9) 0x0102030405060708...');
   });
 
   it('formats ROS time values', () => {
