@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { readFileSync } from 'node:fs';
-import { homedir } from 'node:os';
-import { join } from 'node:path';
+import agibotLikeRaw from '../../../test-fixtures/layouts/agibot-like.json';
+import multiCanvasRaw from '../../../test-fixtures/layouts/multi-canvas.json';
 import {
   buildFoxgloveLayout,
   collectMosaicPanelIds,
@@ -14,24 +13,24 @@ import {
 } from './foxgloveLayout';
 
 /**
- * These tests load the real Foxglove layout samples the user attached. Each
- * sample is walked through import -> export and we verify that:
+ * Committed Foxglove layout fixtures (test-fixtures/layouts/). Each sample is
+ * walked through import -> export and we verify that:
  * - Panel ids and topology survive the round-trip.
  * - Unknown panel config fields (e.g. 3D.cameraState) are preserved verbatim
  *   in the re-exported `configById` via the per-panel extras.
  * - Canvas ids round-trip back to Canvas type (not Image).
  */
 
-function readSampleIfPresent(filename: string): FoxgloveLayoutData | null {
-  const path = join(homedir(), 'Downloads', filename);
-  try {
-    const raw = readFileSync(path, 'utf8');
-    const parsed = parseFoxgloveLayout(JSON.parse(raw));
-    return parsed;
-  } catch {
-    return null;
+function parseFixture(raw: unknown): FoxgloveLayoutData {
+  const parsed = parseFoxgloveLayout(raw);
+  if (parsed == null) {
+    throw new Error('Invalid layout fixture');
   }
+  return parsed;
 }
+
+const sampleAgibot = parseFixture(agibotLikeRaw);
+const sampleStudio = parseFixture(multiCanvasRaw);
 
 function getAllMosaicLeaves(node: FoxgloveMosaicNode): string[] {
   return collectMosaicPanelIds(node);
@@ -324,14 +323,9 @@ describe('3D extras round-trip (preserve unknown fields)', () => {
   });
 });
 
-// ---------- Real sample files (skipped when not present in ~/Downloads) ----------
-
-const sampleAgibot = readSampleIfPresent('studio-layout-agibot.json');
-const sampleStudio = readSampleIfPresent('studio_layout__.json');
-
-describe('real Foxglove samples round-trip', () => {
-  it.skipIf(sampleAgibot == null)('studio-layout-agibot.json import preserves all panels', () => {
-    const layout = sampleAgibot!;
+describe('committed Foxglove layout fixtures round-trip', () => {
+  it('agibot-like layout import preserves all panels', () => {
+    const layout = sampleAgibot;
     const ids = collectMosaicPanelIds(layout.layout);
     const imported = importFoxgloveLayout(layout);
     expect(imported.restored).toBe(ids.length);
@@ -341,8 +335,8 @@ describe('real Foxglove samples round-trip', () => {
     expect(imported.dockviewState).toBeDefined();
   });
 
-  it.skipIf(sampleAgibot == null)('studio-layout-agibot.json export keeps Canvas.topicPath and 3D extras', () => {
-    const layout = sampleAgibot!;
+  it('agibot-like layout export keeps Canvas.topicPath and 3D extras', () => {
+    const layout = sampleAgibot;
     const imported = importFoxgloveLayout(layout);
     // Build a synthetic apiState where every panel lives in its own leaf
     // (the real runtime goes through DockView first, but for export logic
@@ -372,8 +366,8 @@ describe('real Foxglove samples round-trip', () => {
     expect(exported.globalVariables).toEqual(layout.globalVariables);
   });
 
-  it.skipIf(sampleStudio == null)('studio_layout__.json import+export round-trip keeps configById keys', () => {
-    const layout = sampleStudio!;
+  it('multi-canvas layout import+export round-trip keeps configById keys', () => {
+    const layout = sampleStudio;
     const imported = importFoxgloveLayout(layout);
     const apiState = buildApiStateFromMosaic(layout.layout!, imported.panelStates);
     const exported = buildFoxgloveLayout({

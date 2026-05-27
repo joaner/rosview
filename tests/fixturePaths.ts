@@ -1,0 +1,33 @@
+import { existsSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+export const EXAMPLES_DIR = path.join(__dirname, '../public/examples');
+
+export const MCAP_BASIC = path.join(EXAMPLES_DIR, 'test_5s.mcap');
+export const MCAP_POSE = path.join(EXAMPLES_DIR, 'test_pose.mcap');
+export const MCAP_3CAM = path.join(EXAMPLES_DIR, 'test_3cam.mcap');
+export const MCAP_H264 = path.join(EXAMPLES_DIR, 'test_h264.mcap');
+export const HDF5_MINIMAL = path.join(EXAMPLES_DIR, 'test_minimal.hdf5');
+export const BVH_MINIMAL = path.join(EXAMPLES_DIR, 'test_minimal.bvh');
+
+export const MCAP_BASIC_URL = '/examples/test_5s.mcap';
+export const MCAP_POSE_URL = '/examples/test_pose.mcap';
+export const MCAP_3CAM_URL = '/examples/test_3cam.mcap';
+export const MCAP_H264_URL = '/examples/test_h264.mcap';
+export const HDF5_MINIMAL_URL = '/examples/test_minimal.hdf5';
+export const BVH_MINIMAL_URL = '/examples/test_minimal.bvh';
+
+/** Fail fast when pretest:e2e has not generated fixtures. */
+export function requireFixture(fixturePath: string): string {
+  if (!existsSync(fixturePath)) {
+    throw new Error(`Missing fixture: ${fixturePath}. Run npm run gen:e2e:fixtures`);
+  }
+  return fixturePath;
+}
+
+export function requireExamplesDir(): void {
+  requireFixture(MCAP_BASIC);
+}

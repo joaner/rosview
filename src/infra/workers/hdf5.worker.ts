@@ -1,4 +1,5 @@
 import * as Comlink from 'comlink';
+import { loadHdf5Runtime, openHdf5File } from './hdf5RuntimeLoader';
 import type { Initialization } from '@/core/types/ros';
 import type {
   GetAdjacentMessageArgs,
@@ -29,10 +30,17 @@ class Hdf5WorkerImpl implements IWorkerSerializedSourceWorker {
   };
   private _qualityScan = new DataQualityScanController();
 
-  async initialize(args: { url?: string; file?: Blob; autoDataQualityScan?: boolean }): Promise<Initialization> {
-    const h5mod = (await import('@ioai/hdf5')).default;
-    await h5mod.ready;
-    const h5 = h5mod as unknown as Parameters<typeof mountBlobAsFile>[0];
+  async initialize(args: {
+    url?: string;
+    file?: Blob;
+    autoDataQualityScan?: boolean;
+    hdf5WasmBinary?: ArrayBuffer;
+  }): Promise<Initialization> {
+    if (!args.hdf5WasmBinary) {
+      throw new Error('Hdf5Worker: hdf5WasmBinary required (pass wasm bytes from main thread for inline workers)');
+    }
+    const runtime = await loadHdf5Runtime(args.hdf5WasmBinary);
+    const h5 = { FS: runtime.module.FS, ready: Promise.resolve(runtime.module) };
 
     if (args.file) {
       const name = (args.file as File).name ?? 'upload.h5';
@@ -43,9 +51,8 @@ class Hdf5WorkerImpl implements IWorkerSerializedSourceWorker {
       throw new Error('Hdf5Worker: neither url nor file provided');
     }
 
-    const File = (h5mod as unknown as { File: new (path: string, mode: string) => unknown }).File;
     try {
-      this._h5file = new File(this._mounted.path, 'r') as typeof this._h5file;
+      this._h5file = openHdf5File(runtime, this._mounted.path, 'r');
     } catch (err) {
       console.error('[Hdf5Worker] failed to open HDF5 file', err);
       throw err;

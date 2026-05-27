@@ -1,0 +1,117 @@
+{
+  "layout": {
+    "first": {
+      "first": "Canvas!162kif3",
+      "second": {
+        "first": "Canvas!2mccubl",
+        "second": {
+          "first": "Canvas!3lvfzbu",
+          "second": "Canvas!284oaci",
+          "direction": "row",
+          "splitPercentage": 50.06835269993164
+        },
+        "direction": "row",
+        "splitPercentage": 33.33333333333334
+      },
+      "direction": "row",
+      "splitPercentage": 24.95090613252539
+    },
+    "second": {
+      "first": {
+        "first": "3D!2ofx34",
+        "second": "Canvas!3a8p53p",
+        "direction": "row",
+        "splitPercentage": 49.87459887216873
+      },
+      "second": {
+        "first": "Canvas!19w6ich",
+        "second": "Canvas!1755x3g",
+        "direction": "row"
+      },
+      "direction": "row",
+      "splitPercentage": 50
+    },
+    "direction": "column",
+    "splitPercentage": 53.35029686174725
+  },
+  "userNodes": {},
+  "configById": {
+    "3D!2ofx34": {
+      "scene": {},
+      "layers": {
+        "122c4034-bdfd-4872-aa60-68a0df2747bc": {
+          "size": 10,
+          "color": "#248eff",
+          "label": "Grid",
+          "order": 1,
+          "layerId": "foxglove.Grid",
+          "visible": true,
+          "position": [0, 0, 0],
+          "rotation": [0, 0, 0],
+          "divisions": 10,
+          "lineWidth": 1,
+          "instanceId": "122c4034-bdfd-4872-aa60-68a0df2747bc",
+          "frameLocked": true
+        }
+      },
+      "topics": {
+        "/vo_traj": {
+          "visible": true,
+          "showOutlines": true
+        }
+      },
+      "publish": {
+        "type": "point",
+        "poseTopic": "/move_base_simple/goal",
+        "pointTopic": "/clicked_point",
+        "poseEstimateTopic": "/initialpose",
+        "poseEstimateXDeviation": 0.5,
+        "poseEstimateYDeviation": 0.5,
+        "poseEstimateThetaDeviation": 0.26179939
+      },
+      "imageMode": {},
+      "followMode": "follow-pose",
+      "transforms": {},
+      "cameraState": {
+        "far": 5000,
+        "phi": 67.06205985915402,
+        "fovy": 45,
+        "near": 0.5,
+        "target": [0, 0, 0],
+        "distance": 1.131232547004857,
+        "perspective": true,
+        "thetaOffset": 1.181778169014167,
+        "targetOffset": [
+          0.04282398404725626,
+          0.1988218666116751,
+          -1.383210124033811e-18
+        ],
+        "targetOrientation": [0, 0, 0, 1]
+      }
+    },
+    "Canvas!162kif3": {
+      "topicPath": "/sensor/EgoCentric_Camera_0/image/compressed"
+    },
+    "Canvas!1755x3g": {
+      "topicPath": "/camera/depth"
+    },
+    "Canvas!19w6ich": {
+      "topicPath": "/ee_pose/vis/compressed"
+    },
+    "Canvas!284oaci": {
+      "topicPath": "/sensor/Right_Gripper_Camera_0/image/compressed"
+    },
+    "Canvas!2mccubl": {
+      "topicPath": "/sensor/EgoCentric_Camera_1/image/compressed"
+    },
+    "Canvas!3a8p53p": {
+      "topicPath": "/semantic_segmentation/EgoCentric_Camera_0/compressed"
+    },
+    "Canvas!3lvfzbu": {
+      "topicPath": "/sensor/Left_Wrist_Camera_0/image/compressed"
+    }
+  },
+  "globalVariables": {
+    "globalVariable": 0
+  }
+}
