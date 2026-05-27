@@ -1,4 +1,4 @@
-import type { ImageColorMode } from './image-core/imageColorMode';
+import type { ImageColorMode } from './core/imageColorMode';
 
 export interface ImageConfig {
   topic: string;

@@ -16,11 +16,11 @@ import {
 } from '@/shared/ros/rosMessageTypes';
 import { TopicQuickPicker } from '../framework/TopicQuickPicker';
 import type { AudioConfig } from './defaults';
-import { AudioPlaybackController } from './audio-core/audioPlaybackController';
-import { normalizeAudioMessage } from './audio-core/normalize';
-import { heuristicAudioInfoTopics, ingestAudioInfoFromEvent } from './audio-core/resolveAudioInfo';
-import type { ParsedAudioInfo } from './audio-core/types';
-import { WaveformEnvelopeBuffer } from './audio-core/waveformBuffer';
+import { AudioPlaybackController } from './core/audioPlaybackController';
+import { normalizeAudioMessage } from './core/normalize';
+import { heuristicAudioInfoTopics, ingestAudioInfoFromEvent } from './core/resolveAudioInfo';
+import type { ParsedAudioInfo } from './core/types';
+import { WaveformEnvelopeBuffer } from './core/waveformBuffer';
 
 export type AudioPanelProps = AudioConfig & {
   player: Player;

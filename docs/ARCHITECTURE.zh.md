@@ -841,7 +841,7 @@ rosview/
     │   ├── layout/                     # Dockview、dockviewController、Tab 菜单
     │   ├── viewer/                     # 对外 `RosViewer`、内部实现与 `RosViewProvider` / Content
     │   ├── workspace/                  # navbar、sidebar、common、playback
-    │   └── panels/                     # 各面板目录 + framework + registry + image-core
+    │   └── panels/                     # 各面板目录 + framework + registry（面板内 core/ 子目录）
     │       └── PANEL_CONTRACT.md       # 面板契约
     │
     ├── shared/

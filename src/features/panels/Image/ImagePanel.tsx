@@ -4,21 +4,21 @@ import type { Player } from '@/core/types/player';
 import type { MessageEvent as RosMessageEvent } from '@/core/types/ros';
 import { scheduleFrame } from '@/shared/utils/rafScheduler';
 import { toNano } from '@/shared/utils/time';
-import type { RawImageDecodeOptions } from './image-core/imageColorMode';
+import type { RawImageDecodeOptions } from './core/imageColorMode';
 import type {
   ImageRenderOptions,
   ImageRenderWorkerEvent,
   ImageRenderWorkerRequest,
-} from './image-core/imageWorkerProtocol';
+} from './core/imageWorkerProtocol';
 import {
   IMAGE_PANEL_TOPIC_INCLUDES,
   type ImageSurfaceStatus,
-} from './image-core/imageTypes';
-import { repairH264Seek } from './image-core/h264SeekRepair';
-import { isH264MessageEvent, toWorkerFrame } from './image-core/messageFrameAdapter';
+} from './core/imageTypes';
+import { repairH264Seek } from './core/h264SeekRepair';
+import { isH264MessageEvent, toWorkerFrame } from './core/messageFrameAdapter';
 import type { ImageConfig } from './defaults';
 import { TopicQuickPicker } from '../framework/TopicQuickPicker';
-import ImageRenderWorkerClass from './image-core/ImageRender.worker.ts?worker&inline';
+import ImageRenderWorkerClass from './core/ImageRender.worker.ts?worker&inline';
 
 type ColorOptions = Pick<ImageConfig, 'colorMode' | 'flatColor' | 'gradient' | 'colorMap' | 'explicitAlpha' | 'minValue' | 'maxValue'>;
 

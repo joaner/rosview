@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
 import { useIntl } from 'react-intl';
-import type { ImageColorMode } from './image-core/imageColorMode';
+import type { ImageColorMode } from './core/imageColorMode';
 import type { PanelSettingsContext } from '../framework/types';
 import {
   SettingsField,
@@ -13,7 +13,7 @@ import {
 } from '../framework/settings';
 import { messageBus } from '@/core/pipeline/messageBus';
 import { useTopicSeq } from '@/core/pipeline/useMessageBus';
-import { isRawImageMessage, isRawImageTopicSchema, IMAGE_PANEL_TOPIC_INCLUDES } from './image-core/imageTypes';
+import { isRawImageMessage, isRawImageTopicSchema, IMAGE_PANEL_TOPIC_INCLUDES } from './core/imageTypes';
 import type { ImageConfig } from './defaults';
 
 const DEPTH_ENCODINGS = new Set(['mono16', '16uc1', '32fc1']);

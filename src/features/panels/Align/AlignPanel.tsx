@@ -15,7 +15,7 @@ import {
   formatOffsetMs,
   messageToAlignPoint,
   type AlignPoint,
-} from '../align-core/alignTimeUtils';
+} from './core/alignTimeUtils';
 import type { AlignConfig } from './defaults';
 
 const MAX_POINTS = 60_000;
