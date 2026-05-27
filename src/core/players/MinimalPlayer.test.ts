@@ -27,6 +27,11 @@ describe('MinimalPlayer', () => {
     unsub();
   });
 
+  it('getCurrentTime returns the latest zero time while ready', () => {
+    player = new MinimalPlayer();
+    expect(player.getCurrentTime()).toEqual({ sec: 0, nsec: 0 });
+  });
+
   it('close sets presence to closed', () => {
     player = new MinimalPlayer();
     player.close();

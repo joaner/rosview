@@ -333,7 +333,8 @@ flowchart TB
     BufferedSource -->|"messageIterator\n(17ms batches)"| Player
     BlockLoader -->|"background prefill\ntime-block cache"| BufferedSource
 
-    Player -->|"PlayerState\n(messages, currentTime,\ntopics, progress)"| Pipeline
+    Player -->|"PlayerState\nmetadata, topics, progress"| Pipeline
+    Player -->|"subscribeCurrentTime()\ngetCurrentTime()"| FrameThrottle
     Pipeline --> FrameThrottle
     FrameThrottle -->|"messageEventsBySubscriberId"| ImagePanel
     FrameThrottle --> PlotPanel
@@ -408,10 +409,13 @@ Key design decisions:
 - **BlockLoader**: divides the entire file timeline into up to 400 blocks and preloads in the background
 - **Seek backfill**: when seeking to a target time, fetches the most recent message per subscribed topic so panels always have data to display
 - **Startup delay**: waits 100 ms after initialization before starting playback, giving panels time to call `setSubscriptions`
+- **Playback time channel**: high-frequency `currentTime` updates go through `subscribeCurrentTime()` / `getCurrentTime()` instead of the Zustand pipeline store
 
 #### MessagePipeline Layer
 
 Core message distribution pipeline (Zustand store + custom pub/sub):
+
+The Zustand store is intentionally limited to slowly-changing metadata. `PlayerState.activeData.currentTime` remains as a compatibility snapshot for discrete events such as initialization, seek, pause, loop/end boundaries, and close, but it is not updated for every playback tick.
 
 ```typescript
 interface MessagePipelineState {
@@ -443,7 +447,7 @@ Frame-rate control mechanism:
 1. Player pushes `PlayerState` via `setListener`
 2. The pipeline waits for all panels to call `renderDone` before processing the next frame
 3. `msPerFrame` enforces a minimum interval between frames
-4. Panels subscribe with `useMessagePipeline(selector)` to receive only the slice they need
+4. Panels subscribe with `useMessagePipeline(selector)` to receive only the slow metadata slice they need; live playhead UI uses `subscribeCurrentTime()` or `getCurrentTime()`
 
 #### Panel Layer
 
@@ -598,7 +602,12 @@ const subscribersRef = useRef<Set<(time: Time) => void>>(new Set());
 
 function subscribeCurrentTime(callback: (time: Time) => void) {
   subscribersRef.current.add(callback);
+  if (currentTimeRef.current) callback(currentTimeRef.current);
   return () => subscribersRef.current.delete(callback);
+}
+
+function getCurrentTime() {
+  return currentTimeRef.current;
 }
 
 // Advance playback without triggering React renders

@@ -162,7 +162,7 @@ export const PlaybackBar: React.FC<PlaybackBarProps> = ({ player, extensionConte
 
   const startTimeRef = useRef<Time | undefined>(undefined);
   const endTimeRef = useRef<Time | undefined>(undefined);
-  const latestTimeRef = useRef<Time | undefined>(undefined);
+  const latestTimeRef = useRef<Time | undefined>(player.getCurrentTime());
   const isDraggingRef = useRef(false);
   const lastHoverPercentRef = useRef<number | null>(null);
   const cancelPlaybackFrameRef = useRef<(() => void) | null>(null);

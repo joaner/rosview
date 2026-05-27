@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { IterablePlayer } from './IterablePlayer';
 import { messageBus } from '@/core/pipeline/messageBus';
+import { useMessagePipelineStore } from '@/core/pipeline/store';
 import type { Initialization, MessageEvent } from '@/core/types/ros';
 import type { PlayerState } from '@/core/types/player';
 import type { WorkerSerializedSource } from '@/infra/workers/WorkerSerializedSource';
@@ -264,6 +265,75 @@ describe('IterablePlayer playback clock', () => {
 
     unsubscribe();
     player.close();
+  });
+
+  it('returns current time through the imperative getter', async () => {
+    const source = makeSource([]);
+    const player = new IterablePlayer(source);
+
+    await player.initialize({});
+    expect(player.getCurrentTime()).toEqual({ sec: 0, nsec: 0 });
+
+    player.seek({ sec: 3, nsec: 250_000_000 });
+    await flushAsyncWork();
+    expect(player.getCurrentTime()).toEqual({ sec: 3, nsec: 250_000_000 });
+
+    player.close();
+  });
+
+  it('does not advance pipeline-store currentTime on pure playback ticks', async () => {
+    let now = 0;
+    let nextRafId = 1;
+    const oldPerformanceNow = performance.now;
+    const oldRequestAnimationFrame = globalThis.requestAnimationFrame;
+    const oldCancelAnimationFrame = globalThis.cancelAnimationFrame;
+    const rafCallbacks = new Map<number, FrameRequestCallback>();
+    Object.defineProperty(performance, 'now', {
+      configurable: true,
+      value: () => now,
+    });
+    globalThis.requestAnimationFrame = vi.fn((cb: FrameRequestCallback) => {
+      const id = nextRafId++;
+      rafCallbacks.set(id, cb);
+      return id;
+    });
+    globalThis.cancelAnimationFrame = vi.fn((id: number) => {
+      rafCallbacks.delete(id);
+    });
+
+    const source = makeSource([]);
+    const player = new IterablePlayer(source);
+    const seenTimes: number[] = [];
+
+    try {
+      await player.initialize({});
+      player.play();
+      const pipelineTimeBefore = useMessagePipelineStore.getState().playerState.activeData?.currentTime;
+      const unsubscribeTime = player.subscribeCurrentTime((time) => {
+        seenTimes.push(time.sec + time.nsec / 1e9);
+      });
+
+      now = 1000;
+      const firstRaf = Math.min(...rafCallbacks.keys());
+      rafCallbacks.get(firstRaf)?.(now);
+      await flushAsyncWork();
+
+      expect(seenTimes.at(-1)).toBeCloseTo(1, 3);
+      expect(player.getCurrentTime()).toEqual({ sec: 1, nsec: 0 });
+      expect(useMessagePipelineStore.getState().playerState.activeData?.currentTime).toBe(
+        pipelineTimeBefore,
+      );
+
+      unsubscribeTime();
+    } finally {
+      player.close();
+      Object.defineProperty(performance, 'now', {
+        configurable: true,
+        value: oldPerformanceNow,
+      });
+      globalThis.requestAnimationFrame = oldRequestAnimationFrame;
+      globalThis.cancelAnimationFrame = oldCancelAnimationFrame;
+    }
   });
 
   it('does not catch up wall time elapsed while the page is hidden', async () => {

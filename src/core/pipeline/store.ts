@@ -20,7 +20,8 @@ const EMPTY_DATATYPES = {} as RosDatatypes;
  * Message state (lastMessageByTopic, per-subscriber batches, seq counters) is
  * kept out of this store and lives in `messageBus` with per-key subscriptions.
  * This store only holds slowly-changing metadata so that per-tick fan-out does
- * not wake every useMessagePipeline subscriber.
+ * not wake every useMessagePipeline subscriber. Real-time playback time is
+ * exposed through Player.subscribeCurrentTime/getCurrentTime instead.
  */
 export const useMessagePipelineStore = create<MessagePipelineState>((set) => ({
   playerState: { presence: 'preinit', progress: {} },
@@ -42,8 +43,8 @@ export const useMessagePipelineStore = create<MessagePipelineState>((set) => ({
       }
       // Re-use existing references when the underlying identity has not changed
       // so that selectors returning these fields are Object.is-equal and React
-      // skips the re-render, while still notifying selectors that depend on
-      // playerState itself (e.g. currentTime via activeData).
+      // skips the re-render for selectors that do not depend on playerState
+      // identity itself.
       return {
         playerState,
         sortedTopics: ad.topics === state.sortedTopics ? state.sortedTopics : ad.topics,

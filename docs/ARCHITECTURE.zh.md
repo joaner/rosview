@@ -326,7 +326,8 @@ flowchart TB
     BufferedSource -->|"messageIterator\n(17ms 批量)"| Player
     BlockLoader -->|"后台预填充\n时间块缓存"| BufferedSource
 
-    Player -->|"PlayerState\n(messages, currentTime,\ntopics, progress)"| Pipeline
+    Player -->|"PlayerState\nmetadata, topics, progress"| Pipeline
+    Player -->|"subscribeCurrentTime()\ngetCurrentTime()"| FrameThrottle
     Pipeline --> FrameThrottle
     FrameThrottle -->|"messageEventsBySubscriberId"| ImagePanel
     FrameThrottle --> PlotPanel
@@ -403,10 +404,13 @@ interface Initialization {
 - **BlockLoader**：将整个文件时间线划分为最多 400 个 block，后台预加载
 - **Seek backfill**：跳转到目标时间时，为每个已订阅 Topic 获取最近一条消息（确保面板立即有数据显示）
 - **启动延迟**：初始化后等待 100ms 再开始播放，让面板先完成 `setSubscriptions`
+- **播放时间通道**：高频 `currentTime` 通过 `subscribeCurrentTime()` / `getCurrentTime()` 暴露，不经过 Zustand pipeline store
 
 #### MessagePipeline 层
 
 核心消息分发管线（Zustand store + 自定义发布/订阅）：
+
+Zustand store 只承载低频元数据。`PlayerState.activeData.currentTime` 作为兼容快照保留，只在初始化、seek、pause、loop/end 边界、close 等离散事件刷新，不会在播放 tick 中持续更新。
 
 ```typescript
 interface MessagePipelineState {
@@ -438,7 +442,7 @@ interface MessagePipelineState {
 1. Player 通过 `setListener` 推送 PlayerState
 2. Pipeline 收到后，必须等上一帧所有面板 `renderDone` 后才处理下一帧
 3. `msPerFrame` 限制两帧之间的最小间隔
-4. 面板通过 `useMessagePipeline(selector)` 只订阅需要的切片
+4. 面板通过 `useMessagePipeline(selector)` 只订阅需要的低频元数据切片；实时播放头使用 `subscribeCurrentTime()` 或 `getCurrentTime()`
 
 #### 面板层
 
@@ -596,7 +600,12 @@ const subscribersRef = useRef<Set<(time: Time) => void>>(new Set());
 
 function subscribeCurrentTime(callback: (time: Time) => void) {
   subscribersRef.current.add(callback);
+  if (currentTimeRef.current) callback(currentTimeRef.current);
   return () => subscribersRef.current.delete(callback);
+}
+
+function getCurrentTime() {
+  return currentTimeRef.current;
 }
 
 // 播放推进时直接调 subscriber（不触发 React 渲染）

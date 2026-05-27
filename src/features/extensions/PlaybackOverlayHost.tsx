@@ -32,6 +32,25 @@ function sortByOrder(a: { order?: number }, b: { order?: number }): number {
   return (a.order ?? 0) - (b.order ?? 0);
 }
 
+const PlaybackOverlayItem = React.memo(function PlaybackOverlayItem({
+  overlay,
+  context,
+}: {
+  overlay: PlaybackOverlayContribution;
+  context: RosViewExtensionContext;
+}) {
+  return (
+    <ExtensionRenderBoundary extensionId={overlay.id}>
+      <div
+        data-testid={`playback-overlay-${overlay.id}`}
+        style={overlay.height == undefined ? undefined : { height: overlay.height }}
+      >
+        {overlay.render(context)}
+      </div>
+    </ExtensionRenderBoundary>
+  );
+});
+
 export const PlaybackOverlayHost: React.FC<PlaybackOverlayHostProps> = ({ overlays, context }) => {
   const ordered = React.useMemo(() => [...(overlays ?? [])].sort(sortByOrder), [overlays]);
   if (ordered.length === 0) {
@@ -40,14 +59,7 @@ export const PlaybackOverlayHost: React.FC<PlaybackOverlayHostProps> = ({ overla
   return (
     <>
       {ordered.map((overlay) => (
-        <ExtensionRenderBoundary key={overlay.id} extensionId={overlay.id}>
-          <div
-            data-testid={`playback-overlay-${overlay.id}`}
-            style={overlay.height == undefined ? undefined : { height: overlay.height }}
-          >
-            {overlay.render(context)}
-          </div>
-        </ExtensionRenderBoundary>
+        <PlaybackOverlayItem key={overlay.id} overlay={overlay} context={context} />
       ))}
     </>
   );

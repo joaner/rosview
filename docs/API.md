@@ -374,8 +374,8 @@ import type {
 | `PlaybackOverlayContribution` | Registers a region above playback track (`id`, optional `order`, optional `height`, `render(context)`). |
 | `TimelineOverlayContribution` | Alias of `PlaybackOverlayContribution` for naming clarity. |
 | `RosViewExtensionContext` | Stable context object passed into extension renderers. |
-| `PlaybackControlsApi` | Playback controls: `seek`, `play`, `pause`, `setSpeed`, `setLooping`, `stepBy`, `stepMessage`, `playUntil`, `subscribeCurrentTime`, `getSnapshot`. |
-| `PlaybackSnapshot` | Playback state including `currentTime`, `startTime`, `endTime`, `isPlaying`, `speed`, optional `progressPercent`, `buffering`, `problems`. |
+| `PlaybackControlsApi` | Playback controls: `seek`, `play`, `pause`, `setSpeed`, `setLooping`, `stepBy`, `stepMessage`, `playUntil`, `subscribeCurrentTime`, `getCurrentTime`, `getSnapshot`. |
+| `PlaybackSnapshot` | Low-frequency playback state including `currentTime`, `startTime`, `endTime`, `isPlaying`, `speed`, optional `progressPercent`, `buffering`, `problems`. |
 | `TimelineApi` | Helpers aligned with the scrubber: `getTimeBounds`, `timeToPercent`, `percentToTime`. |
 | `MessageAccessApi` | Read-only `getMessagesInTimeRange` when the underlying player supports it. |
 
@@ -431,7 +431,8 @@ const annotationExtension: RosViewExtension = {
 ### Best practices
 
 - Prefer `playback.subscribeCurrentTime()` for high-frequency visuals (canvas/ref updates) instead of React setState on every frame.
-- Use `playback.getSnapshot()` for low-frequency state checks like `isPlaying`, `startTime`, and `endTime`.
+- Use `playback.getCurrentTime()` for one-off real-time playhead reads.
+- Use `playback.getSnapshot()` for low-frequency state checks like `isPlaying`, `startTime`, and `endTime`; its `currentTime` is a compatibility snapshot, not a React-driven playhead source.
 - Keep extension renderers resilient; runtime errors are isolated from core playback controls.
 
 ---
@@ -439,6 +440,8 @@ const annotationExtension: RosViewExtension = {
 ## MessagePipeline Hook
 
 For advanced use cases — subscribing to playback state and decoded messages from within custom React components rendered inside the viewer.
+
+`useMessagePipeline` is intended for slowly-changing metadata such as presence, topics, bounds, progress, speed, and decoded message availability. Do not use `playerState.activeData.currentTime` for live playback UI; use `playback.subscribeCurrentTime()` or `playback.getCurrentTime()` instead.
 
 ```ts
 import { useMessagePipeline } from '@ioai/rosview';

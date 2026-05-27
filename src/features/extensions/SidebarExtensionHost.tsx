@@ -25,12 +25,24 @@ class ExtensionRenderBoundary extends React.Component<{ extensionId: string; chi
   }
 }
 
-export const SidebarExtensionHost: React.FC<SidebarExtensionHostProps> = ({ contribution, context }) => {
+const SidebarExtensionContent = React.memo(function SidebarExtensionContent({
+  contribution,
+  context,
+}: SidebarExtensionHostProps) {
+  return (
+    <div className="flex min-h-0 min-w-0 w-full flex-1 flex-col overflow-hidden">
+      {contribution.render(context)}
+    </div>
+  );
+});
+
+export const SidebarExtensionHost: React.FC<SidebarExtensionHostProps> = React.memo(function SidebarExtensionHost({
+  contribution,
+  context,
+}) {
   return (
     <ExtensionRenderBoundary extensionId={contribution.id}>
-      <div className="flex min-h-0 min-w-0 w-full flex-1 flex-col overflow-hidden">
-        {contribution.render(context)}
-      </div>
+      <SidebarExtensionContent contribution={contribution} context={context} />
     </ExtensionRenderBoundary>
   );
-};
+});

@@ -68,6 +68,10 @@ export class MinimalPlayer implements Player {
     };
   }
 
+  getCurrentTime(): Time | undefined {
+    return this._currentTime();
+  }
+
   play(): void {}
 
   pause(): void {}

@@ -43,14 +43,17 @@ function timeToPercentInternal(current: Time, start: Time, end: Time): number {
   return clampPercent(Number((currentNano * 10000n) / total) / 100);
 }
 
-function buildPlaybackSnapshot(state: MessagePipelineState['playerState']): PlaybackSnapshot {
+function buildPlaybackSnapshot(
+  state: MessagePipelineState['playerState'],
+  currentTime: Time | undefined,
+): PlaybackSnapshot {
   const activeData = state.activeData;
   const pr = state.progress;
   return {
     presence: state.presence,
     startTime: activeData?.startTime,
     endTime: activeData?.endTime,
-    currentTime: activeData?.currentTime,
+    currentTime,
     isPlaying: activeData?.isPlaying ?? false,
     isLooping: activeData?.isLooping ?? true,
     speed: activeData?.speed ?? 1,
@@ -104,7 +107,7 @@ export function createPlaybackControlsApi(
     playUntil: (time) =>
       new Promise<void>((resolve) => {
         const targetNs = toNano(time);
-        const snap = buildPlaybackSnapshot(getPlayerState());
+        const snap = buildPlaybackSnapshot(getPlayerState(), player.getCurrentTime());
         const cur = snap.currentTime;
         if (cur && toNano(cur) >= targetNs) {
           resolve();
@@ -120,7 +123,8 @@ export function createPlaybackControlsApi(
         player.play();
       }),
     subscribeCurrentTime: (cb) => player.subscribeCurrentTime(cb),
-    getSnapshot: () => buildPlaybackSnapshot(getPlayerState()),
+    getCurrentTime: () => player.getCurrentTime(),
+    getSnapshot: () => buildPlaybackSnapshot(getPlayerState(), player.getCurrentTime()),
   };
 }
 

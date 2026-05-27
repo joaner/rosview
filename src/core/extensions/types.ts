@@ -39,6 +39,8 @@ export interface PlaybackControlsApi {
    */
   playUntil(time: Time): Promise<void>;
   subscribeCurrentTime(cb: (time: Time) => void): Unsubscribe;
+  /** Latest playback time without subscribing React to high-frequency pipeline state. */
+  getCurrentTime(): Time | undefined;
   getSnapshot(): PlaybackSnapshot;
 }
 

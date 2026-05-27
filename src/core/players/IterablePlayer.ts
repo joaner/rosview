@@ -67,6 +67,16 @@ function isSameTimeRanges(nextValue?: TimeRange[], prevValue?: TimeRange[]): boo
   return true;
 }
 
+function isSameTime(nextValue: Time | undefined, prevValue: Time | undefined): boolean {
+  if (nextValue === prevValue) {
+    return true;
+  }
+  if (!nextValue || !prevValue) {
+    return false;
+  }
+  return nextValue.sec === prevValue.sec && nextValue.nsec === prevValue.nsec;
+}
+
 type SharedPayloadRingProgress = NonNullable<PlayerState["progress"]["sharedPayloadRing"]>;
 
 function isSameSharedPayloadRing(
@@ -176,6 +186,10 @@ export class IterablePlayer implements Player {
     return () => {
       this._timeSubscribers.delete(cb);
     };
+  }
+
+  getCurrentTime(): Time | undefined {
+    return this._state.presence === "closed" ? undefined : this._currentTime;
   }
 
   registerSubscriptions(panelId: string, subscriptions: Subscription[]): void {
@@ -661,29 +675,46 @@ export class IterablePlayer implements Player {
     }
   }
 
-  /** Replace activeData with a shallow copy so Zustand/React see a new reference. */
-  private _syncActiveDataSlice(): void {
+  /**
+   * Replace activeData only when slow metadata changes.
+   *
+   * Playback time itself is high-frequency and is delivered through
+   * subscribeCurrentTime/getCurrentTime. Keeping it out of the periodic pipeline
+   * emit prevents every useMessagePipeline selector from waking during playback.
+   */
+  private _syncActiveDataSlice(options: { includeCurrentTime?: boolean } = {}): boolean {
     const cur = this._state.activeData;
-    if (!cur) return;
+    if (!cur) return false;
+    const nextCurrentTime = options.includeCurrentTime === true ? this._currentTime : cur.currentTime;
+    const unchanged =
+      isSameTime(cur.currentTime, nextCurrentTime) &&
+      cur.isPlaying === this._isPlaying &&
+      cur.isLooping === this._isLooping &&
+      cur.speed === this._speed;
+    if (unchanged) {
+      return false;
+    }
     this._state.activeData = {
       ...cur,
-      currentTime: this._currentTime,
+      currentTime: nextCurrentTime,
       isPlaying: this._isPlaying,
       isLooping: this._isLooping,
       speed: this._speed,
     };
+    return true;
   }
 
   private _maybeEmitPipelineState(): void {
     const now = performance.now();
     if (now - this._lastPipelineEmitMs < PIPELINE_EMIT_INTERVAL_MS) return;
     this._lastPipelineEmitMs = now;
-    this._syncActiveDataSlice();
-    useMessagePipelineStore.getState().setPlayerState(this._state);
+    if (this._syncActiveDataSlice({ includeCurrentTime: false })) {
+      useMessagePipelineStore.getState().setPlayerState(this._state);
+    }
   }
 
   private _emitState() {
-    this._syncActiveDataSlice();
+    this._syncActiveDataSlice({ includeCurrentTime: true });
 
     if (this._listener) {
       this._listener(this._state);

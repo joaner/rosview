@@ -40,24 +40,16 @@ export const AlignPanel: React.FC<AlignPanelProps> = (props) => {
   const { player, panelId, setConfig, topics: configTopics, timeMode, windowHalfMs, dotRadius, dotOpacity } = props;
   const { formatMessage } = useIntl();
 
-  const { sortedTopics, startTime, endTime, storeCurrentTime } = useMessagePipeline(
+  const { sortedTopics, startTime, endTime } = useMessagePipeline(
     useShallow((state: MessagePipelineState) => ({
       sortedTopics: state.sortedTopics,
       startTime: state.playerState.activeData?.startTime,
       endTime: state.playerState.activeData?.endTime,
-      storeCurrentTime: state.playerState.activeData?.currentTime,
     })),
   );
 
-  const centerTimeRef = useRef<Time>({ sec: 0, nsec: 0 });
+  const centerTimeRef = useRef<Time>(player.getCurrentTime() ?? { sec: 0, nsec: 0 });
   const [centerTick, setCenterTick] = useState(0);
-
-  useEffect(() => {
-    if (storeCurrentTime) {
-      centerTimeRef.current = storeCurrentTime;
-      setCenterTick((v) => v + 1);
-    }
-  }, [storeCurrentTime]);
 
   const imageTopicNames = useMemo(
     () => sortedTopics.filter((t) => isRosImageSchema(t.type)).map((t) => t.name),
