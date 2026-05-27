@@ -6,7 +6,7 @@ import { parseAlignConfig } from './schema';
 import { AlignPanelSettings } from './AlignPanelSettings';
 
 const AlignPanel = lazy(async () => {
-  const m = await import('./Component');
+  const m = await import('./AlignPanel');
   return { default: m.AlignPanel };
 });
 

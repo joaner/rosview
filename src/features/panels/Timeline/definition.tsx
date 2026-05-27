@@ -6,7 +6,7 @@ import { parseTimelineConfig } from './schema';
 import { TimelinePanelSettings } from './TimelinePanelSettings';
 
 const TimelinePanel = lazy(async () => {
-  const m = await import('./Component');
+  const m = await import('./TimelinePanel');
   return { default: m.TimelinePanel };
 });
 

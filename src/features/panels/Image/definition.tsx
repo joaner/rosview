@@ -11,7 +11,7 @@ import {
 import { ImagePanelSettings } from './ImagePanelSettings';
 
 const ImagePanel = lazy(async () => {
-  const m = await import('./Component');
+  const m = await import('./ImagePanel');
   return { default: m.ImagePanel };
 });
 

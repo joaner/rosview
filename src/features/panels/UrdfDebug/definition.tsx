@@ -13,7 +13,7 @@ import { defaultUrdfDebugConfig, type UrdfDebugConfig } from './defaults';
 import { parseUrdfDebugConfig } from './schema';
 
 const UrdfDebugPanel = lazy(async () => {
-  const m = await import('./Component');
+  const m = await import('./UrdfDebugPanel');
   return { default: m.UrdfDebugPanel };
 });
 

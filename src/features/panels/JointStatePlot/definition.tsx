@@ -28,7 +28,7 @@ import { parseJointStatePlotConfig } from './schema';
 import { JointStatePlotPanelSettings } from './JointStatePlotPanelSettings';
 
 const JointStatePlotComponent = lazy(async () => {
-  const m = await import('./Component');
+  const m = await import('./JointStatePlotPanel');
   return { default: m.JointStatePlotComponent };
 });
 
