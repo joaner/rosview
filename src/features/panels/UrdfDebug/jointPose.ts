@@ -1,4 +1,4 @@
-import type { JointStateMsg } from '../ThreeD/foxglove-core/types';
+import type { JointStateMsg } from '../ThreeD/core/types';
 import type { JointStateLike } from './jointStateMapping';
 import type { UrdfJointDescriptor, UrdfMimicJoint } from './urdfAnalysis';
 

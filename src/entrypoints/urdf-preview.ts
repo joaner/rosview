@@ -22,4 +22,4 @@ export {
 } from '../features/panels/UrdfDebug/urdfAnalysis';
 export { extractPackageNameFromUrdf } from '../features/panels/UrdfDebug/meshBaseStatus';
 
-export type { JointStateMsg } from '../features/panels/ThreeD/foxglove-core/types';
+export type { JointStateMsg } from '../features/panels/ThreeD/core/types';

@@ -36,8 +36,8 @@ import {
   disposeRobotRenderable,
   type MeshLoadProgress,
   type RobotRenderable,
-} from './foxglove-core/renderables';
-import type { JointStateMsg, TFMessage } from './foxglove-core/types';
+} from './core/renderables';
+import type { JointStateMsg, TFMessage } from './core/types';
 
 import {
   defaultThreeDConfig,
