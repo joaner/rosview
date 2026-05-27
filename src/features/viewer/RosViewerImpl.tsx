@@ -66,8 +66,10 @@ import { RosViewerLayoutProvider } from './RosViewerLayoutContext';
 import type { RosViewExtension } from '@/core/extensions/types';
 import { toast } from 'sonner';
 import sqlWasmUrl from 'sql.js/dist/sql-wasm.wasm?url';
+import hdf5WasmUrl from '@ioai/hdf5/wasm/ioai_hdf5.wasm?url';
 
 let sqlWasmBinaryPromise: Promise<ArrayBuffer> | null = null;
+let hdf5WasmBinaryPromise: Promise<ArrayBuffer> | null = null;
 
 async function loadSqlWasmBinary(): Promise<ArrayBuffer> {
   sqlWasmBinaryPromise ??= fetch(sqlWasmUrl).then((response) => {
@@ -77,6 +79,16 @@ async function loadSqlWasmBinary(): Promise<ArrayBuffer> {
     return response.arrayBuffer();
   });
   return await sqlWasmBinaryPromise;
+}
+
+async function loadHdf5WasmBinary(): Promise<ArrayBuffer> {
+  hdf5WasmBinaryPromise ??= fetch(hdf5WasmUrl).then((response) => {
+    if (!response.ok) {
+      throw new Error(`Failed to load HDF5 wasm: HTTP ${response.status}`);
+    }
+    return response.arrayBuffer();
+  });
+  return await hdf5WasmBinaryPromise;
 }
 
 function extensionForDataset(ds: DatasetItem): string | undefined {
@@ -124,6 +136,7 @@ async function initializePlayerForDataset(
   const workerPerf =
     typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('workerPerf') === '1';
   const sqlWasmBinary = ext === 'db3' ? await loadSqlWasmBinary() : undefined;
+  const hdf5WasmBinary = ext === 'hdf5' || ext === 'h5' ? await loadHdf5WasmBinary() : undefined;
   if (ds.kind === 'url' && ds.url) {
     const init: Record<string, unknown> = {
       url: resolveBrowserHttpUrl(ds.url),
@@ -132,6 +145,9 @@ async function initializePlayerForDataset(
     };
     if (ext === 'db3') {
       init.sqlWasmBinary = sqlWasmBinary;
+    }
+    if (hdf5WasmBinary) {
+      init.hdf5WasmBinary = hdf5WasmBinary;
     }
     if (
       typeof ds.sizeBytes === 'number' &&
@@ -155,7 +171,12 @@ async function initializePlayerForDataset(
         ...(sqlWasmBinary ? { sqlWasmBinary } : {}),
       });
     } else {
-      await player.initialize({ file: ds.file, workerPerf, autoDataQualityScan });
+      await player.initialize({
+        file: ds.file,
+        workerPerf,
+        autoDataQualityScan,
+        ...(hdf5WasmBinary ? { hdf5WasmBinary } : {}),
+      });
     }
     return;
   }

@@ -63,7 +63,7 @@
     "lint": "eslint \"src/**/*.{ts,tsx}\" \"tests/**/*.ts\"",
     "test": "vitest run",
     "preview": "npm run build && vite preview",
-    "gen:e2e:fixtures": "node scripts/gen-test-mcap.mjs",
+    "gen:e2e:fixtures": "node scripts/gen-e2e-fixtures.mjs",
     "pretest:e2e": "npm run gen:e2e:fixtures",
     "test:e2e": "playwright test"
   },
@@ -96,7 +96,7 @@
     "@foxglove/rosmsg": "^5.0.5",
     "@foxglove/rosmsg-serialization": "^2.0.4",
     "@foxglove/rosmsg2-serialization": "^3.0.3",
-    "@ioai/hdf5": "^0.1.4",
+    "@ioai/hdf5": "^1.0.0",
     "@mcap/core": "^2.0.2",
     "@playwright/test": "^1.59.1",
     "@radix-ui/react-collapsible": "^1.1.12",

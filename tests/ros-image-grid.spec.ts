@@ -1,18 +1,12 @@
 import { test, expect } from '@playwright/test';
-import { existsSync } from 'node:fs';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { MCAP_3CAM_URL, requireFixture, MCAP_3CAM } from './fixturePaths';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const fixtureName = 'kaixiangzi52_2026-04-16_17-25-08_0.mcap';
-const fixturePath = path.join(__dirname, '../public/examples', fixtureName);
-const hasFixture = existsSync(fixturePath);
+test.describe.configure({ timeout: 120_000 });
 
-if (!hasFixture) {
-  console.warn(`[e2e] ros-image-grid.spec.ts not registered: missing sample MCAP ${fixturePath}`);
-}
+test.beforeAll(() => {
+  requireFixture(MCAP_3CAM);
+});
 
-if (hasFixture) {
 test('loads the three-camera compressed image sample without empty decoder payloads', async ({ page }) => {
   const pageErrors: string[] = [];
   page.on('pageerror', (error) => pageErrors.push(error.message));
@@ -22,7 +16,7 @@ test('loads the three-camera compressed image sample without empty decoder paylo
     }
   });
 
-  await page.goto(`/?url=/examples/${fixtureName}`, { waitUntil: 'domcontentloaded' });
+  await page.goto(`/?url=${MCAP_3CAM_URL}`, { waitUntil: 'domcontentloaded' });
   await expect(page.getByTestId('rosview-dockview')).toBeVisible({ timeout: 60_000 });
 
   const imagePanels = page.getByTestId('image-panel');
@@ -47,4 +41,3 @@ test('loads the three-camera compressed image sample without empty decoder paylo
   await expect(page.getByText(/Image decode failed|Compressed image payload is empty|No image data provided/i)).toHaveCount(0);
   expect(pageErrors.filter((entry) => /ImageDecoder|No image data provided/i.test(entry))).toEqual([]);
 });
-}

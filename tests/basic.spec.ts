@@ -1,12 +1,9 @@
 import { test, expect } from '@playwright/test';
-import { existsSync } from 'node:fs';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { MCAP_BASIC_URL, requireExamplesDir } from './fixturePaths';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const defaultFixture = path.join(__dirname, '../public/examples/test_5s.mcap');
-const fixturePath = process.env.ROSVIEW_TEST_MCAP ?? defaultFixture;
-const hasMcapFixture = existsSync(fixturePath);
+test.beforeAll(() => {
+  requireExamplesDir();
+});
 
 test('renders welcome screen initially', async ({ page }) => {
   await page.goto('/');
@@ -16,9 +13,6 @@ test('renders welcome screen initially', async ({ page }) => {
 
 test('can trigger file input from welcome screen', async ({ page }) => {
   await page.goto('/');
-  // Clicking the button should trigger the hidden file input
-  // We can't easily test the file picker dialog in Playwright, 
-  // but we can check if the button exists and is clickable.
   await expect(page.getByRole('button', { name: 'Choose file' })).toBeEnabled();
 });
 
@@ -41,21 +35,15 @@ test('layout menu lists import, export, save, reset', async ({ page }) => {
 });
 
 test('keyboard shortcuts work', async ({ page }) => {
-  test.skip(
-    !hasMcapFixture,
-    `Missing MCAP fixture: copy to public/examples/test_5s.mcap or set ROSVIEW_TEST_MCAP (${fixturePath})`,
-  );
-  await page.goto('/?url=/examples/test_5s.mcap');
+  await page.goto(`/?url=${MCAP_BASIC_URL}`);
 
   await expect(page.getByTestId('rosview-dockview')).toContainText('/camera/', { timeout: 15000 });
 
-  // Blur focused input: sidebar topic filter can swallow Space before transport shortcuts.
   await page.evaluate(() => {
     const el = document.activeElement;
     if (el instanceof HTMLElement) el.blur();
   });
 
-  // Short fixture (~1s): assert Space toggles play/pause instead of wall-clock drift.
   await expect(page.getByRole('button', { name: 'Play playback' })).toBeVisible();
   const loopMode = page.getByTestId('playback-loop-trigger');
   await expect(loopMode).toBeVisible();
@@ -67,11 +55,7 @@ test('keyboard shortcuts work', async ({ page }) => {
 });
 
 test('playback bar supports hover, drag and loop menu', async ({ page }) => {
-  test.skip(
-    !hasMcapFixture,
-    `Missing MCAP fixture: copy to public/examples/test_5s.mcap or set ROSVIEW_TEST_MCAP (${fixturePath})`,
-  );
-  await page.goto('/?url=/examples/test_5s.mcap');
+  await page.goto(`/?url=${MCAP_BASIC_URL}`);
   await expect(page.getByTestId('rosview-dockview')).toContainText('/camera/', { timeout: 15000 });
 
   const track = page.getByTestId('playback-track');
@@ -101,11 +85,7 @@ test('playback bar supports hover, drag and loop menu', async ({ page }) => {
 });
 
 test('playback updates image frames and supports sampling FPS switch', async ({ page }) => {
-  test.skip(
-    !hasMcapFixture,
-    `Missing MCAP fixture: copy to public/examples/test_5s.mcap or set ROSVIEW_TEST_MCAP (${fixturePath})`,
-  );
-  await page.goto('/?url=/examples/test_5s.mcap');
+  await page.goto(`/?url=${MCAP_BASIC_URL}`);
   await expect(page.getByTestId('rosview-dockview')).toContainText('/camera/', { timeout: 30_000 });
 
   const fpsSelect = page.getByTestId('playback-fps-trigger');
@@ -114,7 +94,6 @@ test('playback updates image frames and supports sampling FPS switch', async ({ 
   await page.getByTestId('playback-fps-option-15').click();
   await expect(fpsSelect).toContainText('15');
 
-  // Image panel renders to canvas (not <img>); wait for first frame after lazy init.
   const canvas = page.locator('canvas').first();
   await expect(canvas).toBeVisible({ timeout: 45_000 });
   await expect(page.getByRole('button', { name: 'Play playback' })).toBeVisible();
@@ -123,12 +102,8 @@ test('playback updates image frames and supports sampling FPS switch', async ({ 
 });
 
 test('dockview main region resizes with the window', async ({ page }) => {
-  test.skip(
-    !hasMcapFixture,
-    `Missing MCAP fixture: copy to public/examples/test_5s.mcap or set ROSVIEW_TEST_MCAP (${fixturePath})`,
-  );
   const prev = page.viewportSize();
-  await page.goto('/?url=/examples/test_5s.mcap');
+  await page.goto(`/?url=${MCAP_BASIC_URL}`);
   await expect(page.getByTestId('rosview-dockview')).toContainText('/camera/', { timeout: 30_000 });
 
   const dock = page.getByTestId('rosview-dockview');

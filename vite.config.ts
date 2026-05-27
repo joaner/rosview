@@ -67,7 +67,10 @@ export default defineConfig({
       },
       output: {
         format: 'es',
-        codeSplitting: true,
+        // @ioai/hdf5 dynamic import must stay in the worker bundle — splitting it
+        // emits a sibling chunk (dist-*.js) that workers resolve with a broken
+        // relative URL under preview/assets/.
+        codeSplitting: false,
       },
     },
   },
