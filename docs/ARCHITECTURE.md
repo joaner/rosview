@@ -283,7 +283,7 @@ Fixed-width sidebar (collapsible) on the left with three tabs:
 | Library | Purpose |
 |---------|---------|
 | fflate | General compression/decompression (gzip/deflate/zlib) |
-| fzstd | Browser-safe Zstandard decompression for MCAP chunk compression |
+| @ioai/wasm-zstd | Vite-friendly WebAssembly Zstandard decompression for MCAP chunk compression |
 | lz4js | Browser-safe LZ4 decompression for MCAP/ROS1 chunk compression |
 
 ---

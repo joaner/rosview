@@ -1,9 +1,10 @@
 import type { McapTypes } from "@mcap/core";
-import { decompress as fzstdDecompress } from "fzstd";
+import { decompress as zstdDecompress, init as initZstd } from "@ioai/wasm-zstd";
+import zstdWasmUrl from "@ioai/wasm-zstd/wasm-zstd.wasm?url";
 import * as lz4js from "lz4js";
 
-// @mcap/support currently pulls CommonJS wasm loaders that fail in Vite's
-// ES module worker build, so keep these browser-safe ESM handlers local.
+// Load the zstd wasm module explicitly so Vite owns the wasm asset URL in both
+// dev and production worker bundles.
 
 let handlersPromise: Promise<McapTypes.DecompressHandlers> | undefined;
 
@@ -11,8 +12,10 @@ export async function loadDecompressHandlers(): Promise<McapTypes.DecompressHand
   return await (handlersPromise ??= _loadDecompressHandlers());
 }
 
-function _loadDecompressHandlers(): Promise<McapTypes.DecompressHandlers> {
-  return Promise.resolve({
+async function _loadDecompressHandlers(): Promise<McapTypes.DecompressHandlers> {
+  await initZstd({ wasmUrl: zstdWasmUrl });
+
+  return {
     lz4: (buffer, decompressedSize) => {
       const output = new Uint8Array(Number(decompressedSize));
       const result = lz4js.decompressBlock(buffer, output, 0, buffer.byteLength, 0);
@@ -22,8 +25,7 @@ function _loadDecompressHandlers(): Promise<McapTypes.DecompressHandlers> {
       return output;
     },
     zstd: (buffer, decompressedSize) => {
-      const output = new Uint8Array(Number(decompressedSize));
-      return fzstdDecompress(buffer, output);
+      return zstdDecompress(buffer, Number(decompressedSize));
     },
-  });
+  };
 }

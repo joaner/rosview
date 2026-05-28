@@ -276,7 +276,7 @@
 | 库 | 说明 |
 |----|------|
 | fflate | 通用压缩/解压（gzip/deflate/zlib） |
-| fzstd | 浏览器安全的 Zstandard 解压（MCAP chunk 压缩） |
+| @ioai/wasm-zstd | Vite 友好的 WebAssembly Zstandard 解压（MCAP chunk 压缩） |
 | lz4js | 浏览器安全的 LZ4 解压（MCAP/ROS1 chunk 压缩） |
 
 ---
@@ -901,7 +901,7 @@ rosview/
 
     "fflate": "^0.8.2",
     "@mcap/browser": "^1.1.0",
-    "fzstd": "^0.1.1",
+    "@ioai/wasm-zstd": "^1.1.0",
     "lz4js": "^0.2.0",
 
     "zustand": "^5.0.0",
