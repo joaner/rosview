@@ -62,7 +62,7 @@ react-intl
   Copyright 2026 IO-AI Tech
   Licensed under the MIT License; third-party notices ship with the npm package (see node_modules/@ioai/hdf5/THIRD_PARTY_NOTICES.md after install).
   https://www.npmjs.com/package/@ioai/hdf5
-  Source: https://github.com/ioai-tech/hdf5-wasm
+  Source: https://github.com/ioai-tech/wasm-hdf5
 
 fflate
   Copyright 2020-2024 Arjun Barrett

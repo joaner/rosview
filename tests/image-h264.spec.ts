@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { MCAP_H264_URL, requireFixture, MCAP_H264 } from './fixturePaths';
+import { openFixtureByUrl } from './helpers/rosview';
 
 test.describe.configure({ timeout: 120_000 });
 
@@ -8,8 +9,7 @@ test.beforeAll(() => {
 });
 
 test('H.264 CompressedImage decodes without error', async ({ page }) => {
-  await page.goto(`/?url=${MCAP_H264_URL}`, { waitUntil: 'domcontentloaded' });
-  await expect(page.getByTestId('rosview-dockview')).toBeVisible({ timeout: 60_000 });
+  await openFixtureByUrl(page, MCAP_H264_URL);
 
   const play = page.getByRole('button', { name: 'Play playback' });
   if (await play.isVisible().catch(() => false)) {

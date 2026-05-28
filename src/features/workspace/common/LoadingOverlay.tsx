@@ -18,6 +18,7 @@ export const LoadingOverlay: React.FC<LoadingOverlayProps> = ({ sourceName, onCa
       role="status"
       aria-live="polite"
       aria-busy="true"
+      data-testid="rosview-loading-overlay"
     >
       <Card className="pointer-events-auto w-full max-w-sm border-border shadow-none">
         <CardHeader className="gap-2 pb-4 text-center">

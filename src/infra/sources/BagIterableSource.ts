@@ -47,16 +47,18 @@ function asTime(value: unknown): Time {
 
 export class BagIterableSource implements IIterableSource {
   private _source: BagSource;
+  private _wasmBinary: ArrayBuffer;
   private _bag?: Bag;
   private _datatypesByConnectionId = new Map<number, string>();
   private _readersByConnectionId = new Map<number, MessageReader>();
 
-  constructor(source: BagSource) {
+  constructor(source: BagSource, options: { wasmBinary: ArrayBuffer }) {
     this._source = source;
+    this._wasmBinary = options.wasmBinary;
   }
 
   async initialize(): Promise<Initialization> {
-    const decompressHandlers = await loadDecompressHandlers();
+    const decompressHandlers = await loadDecompressHandlers({ wasmBinary: this._wasmBinary });
 
     const fileLike: BlobReader | RemoteBagReadable =
       this._source.type === "remote" ? this._source.readable : new BlobReader(this._source.file);

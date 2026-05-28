@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { MCAP_BASIC_URL, requireExamplesDir } from './fixturePaths';
+import { openFixtureByUrl } from './helpers/rosview';
 
 async function openFirstTabChromeMenuIfNeeded(page: import('@playwright/test').Page): Promise<void> {
   const directAdd = page.getByTestId('panel-tab-add-button').first();
@@ -19,16 +20,14 @@ test.describe('Dockview chrome', () => {
   });
 
   test('shows dockview, group add split, and tab close control', async ({ page }) => {
-    await page.goto(`/?url=${MCAP_BASIC_URL}`, { waitUntil: 'domcontentloaded' });
-    await expect(page.getByTestId('rosview-dockview')).toBeVisible({ timeout: 60_000 });
+    await openFixtureByUrl(page, MCAP_BASIC_URL);
     await openFirstTabChromeMenuIfNeeded(page);
     await expect(page.getByTestId('panel-tab-add-button').first()).toBeVisible({ timeout: 30_000 });
     await expect(page.getByTestId('panel-tab-close-button').first()).toBeVisible();
   });
 
   test('primary add creates a new tab in the group', async ({ page }) => {
-    await page.goto(`/?url=${MCAP_BASIC_URL}`, { waitUntil: 'domcontentloaded' });
-    await expect(page.getByTestId('rosview-dockview')).toBeVisible({ timeout: 60_000 });
+    await openFixtureByUrl(page, MCAP_BASIC_URL);
     await openFirstTabChromeMenuIfNeeded(page);
     await expect(page.getByTestId('panel-tab-add-button').first()).toBeVisible({ timeout: 30_000 });
 
@@ -45,8 +44,7 @@ test.describe('Dockview chrome', () => {
   });
 
   test('tab context menu offers Close', async ({ page }) => {
-    await page.goto(`/?url=${MCAP_BASIC_URL}`, { waitUntil: 'domcontentloaded' });
-    await expect(page.getByTestId('rosview-dockview')).toBeVisible({ timeout: 60_000 });
+    await openFixtureByUrl(page, MCAP_BASIC_URL);
     const firstTab = page.locator('.dv-tab').first();
     await firstTab.click({ button: 'right' });
     await expect(page.getByRole('menuitem', { name: 'Close', exact: true })).toBeVisible();
@@ -54,16 +52,14 @@ test.describe('Dockview chrome', () => {
   });
 
   test('tab labels show panel type (not topic basename)', async ({ page }) => {
-    await page.goto(`/?url=${MCAP_BASIC_URL}`, { waitUntil: 'domcontentloaded' });
-    await expect(page.getByTestId('rosview-dockview')).toBeVisible({ timeout: 60_000 });
+    await openFixtureByUrl(page, MCAP_BASIC_URL);
     await expect(page.locator('.dv-tab').filter({ hasText: /^Image$/ }).first()).toBeVisible({
       timeout: 30_000,
     });
   });
 
   test('dockview theme class follows dark mode', async ({ page }) => {
-    await page.goto(`/?url=${MCAP_BASIC_URL}&theme=dark`, { waitUntil: 'domcontentloaded' });
-    await expect(page.getByTestId('rosview-dockview')).toBeVisible({ timeout: 60_000 });
+    await openFixtureByUrl(page, MCAP_BASIC_URL, { query: { theme: 'dark' } });
     const dock = page.getByTestId('rosview-dockview');
     await expect(dock).toHaveAttribute('data-dockview-chrome-theme', 'dark');
     await expect(page.locator('.ros-dockview-theme-dark').first()).toBeVisible();

@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { MCAP_3CAM_URL, requireFixture, MCAP_3CAM } from './fixturePaths';
+import { attachBrowserDiagnostics, openFixtureByUrl } from './helpers/rosview';
 
 test.describe.configure({ timeout: 120_000 });
 
@@ -8,16 +9,8 @@ test.beforeAll(() => {
 });
 
 test('loads the three-camera compressed image sample without empty decoder payloads', async ({ page }) => {
-  const pageErrors: string[] = [];
-  page.on('pageerror', (error) => pageErrors.push(error.message));
-  page.on('console', (message) => {
-    if (message.type() === 'error') {
-      pageErrors.push(message.text());
-    }
-  });
-
-  await page.goto(`/?url=${MCAP_3CAM_URL}`, { waitUntil: 'domcontentloaded' });
-  await expect(page.getByTestId('rosview-dockview')).toBeVisible({ timeout: 60_000 });
+  const diagnostics = attachBrowserDiagnostics(page);
+  await openFixtureByUrl(page, MCAP_3CAM_URL, { diagnostics });
 
   const imagePanels = page.getByTestId('image-panel');
   await expect(imagePanels).toHaveCount(3, { timeout: 60_000 });
@@ -39,5 +32,6 @@ test('loads the three-camera compressed image sample without empty decoder paylo
   await page.waitForTimeout(4_000);
   await expect(page.getByTestId('image-panel-status')).toHaveCount(3);
   await expect(page.getByText(/Image decode failed|Compressed image payload is empty|No image data provided/i)).toHaveCount(0);
-  expect(pageErrors.filter((entry) => /ImageDecoder|No image data provided/i.test(entry))).toEqual([]);
+  expect(diagnostics.pageErrors.filter((entry) => /ImageDecoder|No image data provided/i.test(entry))).toEqual([]);
+  expect(diagnostics.consoleErrors.filter((entry) => /ImageDecoder|No image data provided/i.test(entry))).toEqual([]);
 });

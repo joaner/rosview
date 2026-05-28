@@ -1,15 +1,15 @@
 import { test, expect } from '@playwright/test';
 import { MCAP_POSE_URL, requireFixture, MCAP_POSE } from './fixturePaths';
+import { openFixtureByUrl } from './helpers/rosview';
+
+test.describe.configure({ timeout: 90_000 });
 
 test.beforeAll(() => {
   requireFixture(MCAP_POSE);
 });
 
 test('PoseStamped fixture exposes pose topics by schema', async ({ page }) => {
-  await page.goto(`/?url=${MCAP_POSE_URL}`, {
-    waitUntil: 'domcontentloaded',
-  });
-  await expect(page.getByTestId('rosview-dockview')).toBeVisible({ timeout: 60_000 });
+  await openFixtureByUrl(page, MCAP_POSE_URL);
 
   await expect(page.getByText('geometry_msgs/msg/PoseStamped').first()).toBeVisible({
     timeout: 30_000,

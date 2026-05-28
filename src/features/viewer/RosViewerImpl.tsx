@@ -67,31 +67,12 @@ import { resolveEmbedChrome, type RosViewerChrome, type RosViewerMode } from './
 import { RosViewerLayoutProvider } from './RosViewerLayoutContext';
 import type { RosViewExtension } from '@/core/extensions/types';
 import { toast } from 'sonner';
-import sqlWasmUrl from 'sql.js/dist/sql-wasm.wasm?url';
-import hdf5WasmUrl from '@ioai/hdf5/wasm/ioai_hdf5.wasm?url';
-
-let sqlWasmBinaryPromise: Promise<ArrayBuffer> | null = null;
-let hdf5WasmBinaryPromise: Promise<ArrayBuffer> | null = null;
-
-async function loadSqlWasmBinary(): Promise<ArrayBuffer> {
-  sqlWasmBinaryPromise ??= fetch(sqlWasmUrl).then((response) => {
-    if (!response.ok) {
-      throw new Error(`Failed to load SQL wasm: HTTP ${response.status}`);
-    }
-    return response.arrayBuffer();
-  });
-  return await sqlWasmBinaryPromise;
-}
-
-async function loadHdf5WasmBinary(): Promise<ArrayBuffer> {
-  hdf5WasmBinaryPromise ??= fetch(hdf5WasmUrl).then((response) => {
-    if (!response.ok) {
-      throw new Error(`Failed to load HDF5 wasm: HTTP ${response.status}`);
-    }
-    return response.arrayBuffer();
-  });
-  return await hdf5WasmBinaryPromise;
-}
+import {
+  loadHdf5WasmBinary,
+  loadSqlWasmBinary,
+  loadZstdWasmBinary,
+  needsZstdWasmForWorker,
+} from '@/infra/workers/preloadWorkerWasm';
 
 function extensionForDataset(ds: DatasetItem): string | undefined {
   if (ds.kind === 'file' && ds.file) {
@@ -139,6 +120,7 @@ async function initializePlayerForDataset(
     typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('workerPerf') === '1';
   const sqlWasmBinary = ext === 'db3' ? await loadSqlWasmBinary() : undefined;
   const hdf5WasmBinary = ext === 'hdf5' || ext === 'h5' ? await loadHdf5WasmBinary() : undefined;
+  const zstdWasmBinary = needsZstdWasmForWorker(ext) ? await loadZstdWasmBinary() : undefined;
   if (ds.kind === 'url' && ds.url) {
     const init: Record<string, unknown> = {
       url: resolveBrowserHttpUrl(ds.url),
@@ -150,6 +132,9 @@ async function initializePlayerForDataset(
     }
     if (hdf5WasmBinary) {
       init.hdf5WasmBinary = hdf5WasmBinary;
+    }
+    if (zstdWasmBinary) {
+      init.zstdWasmBinary = zstdWasmBinary;
     }
     if (
       typeof ds.sizeBytes === 'number' &&
@@ -171,6 +156,7 @@ async function initializePlayerForDataset(
         workerPerf,
         autoDataQualityScan,
         ...(sqlWasmBinary ? { sqlWasmBinary } : {}),
+        ...(zstdWasmBinary ? { zstdWasmBinary } : {}),
       });
     } else {
       await player.initialize({
@@ -178,6 +164,7 @@ async function initializePlayerForDataset(
         workerPerf,
         autoDataQualityScan,
         ...(hdf5WasmBinary ? { hdf5WasmBinary } : {}),
+        ...(zstdWasmBinary ? { zstdWasmBinary } : {}),
       });
     }
     return;
