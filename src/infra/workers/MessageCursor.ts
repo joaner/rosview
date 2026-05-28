@@ -9,9 +9,16 @@ import { workerPerf } from "./workerPerf";
 
 type MessageCursorOptions = {
   latestOnlyTopics?: readonly string[];
+  maxBufferDurationMs?: number;
 };
 
 type MessageCursorConfig = WorkerTransportConfig & MessageCursorOptions;
+
+function yieldToEventLoop(): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, 0);
+  });
+}
 
 function toThrownError(err: unknown): Error {
   if (err instanceof Error) return err;
@@ -25,12 +32,15 @@ function toThrownError(err: unknown): Error {
 export class MessageCursor implements IMessageCursor<unknown> {
   private static readonly DEFAULT_MAX_BATCH_MESSAGES = 256;
   private static readonly DEFAULT_MAX_BATCH_WALL_MS = 6;
-  private static readonly DEFAULT_MAX_BUFFER_MESSAGES = 2048;
-  private static readonly DEFAULT_MAX_BUFFER_BYTES = 128 * 1024 * 1024;
+  private static readonly DEFAULT_MAX_BUFFER_MESSAGES = 768;
+  private static readonly DEFAULT_MAX_BUFFER_BYTES = 32 * 1024 * 1024;
   private static readonly EMPTY_QUEUE_WAIT_MS = 50;
+  private static readonly MAX_PUMP_SLICE_MESSAGES = 64;
+  private static readonly MAX_PUMP_SLICE_WALL_MS = 8;
   private _iterator: AsyncIterableIterator<MessageEvent>;
   private _transportConfig: WorkerTransportConfig;
   private _latestOnlyTopics: ReadonlySet<string>;
+  private _maxBufferDurationMs: number | undefined;
   private _sharedRing?: SharedPayloadRing;
   private _queue: MessageEvent[] = [];
   private _queueBytes = 0;
@@ -48,6 +58,10 @@ export class MessageCursor implements IMessageCursor<unknown> {
     this._iterator = iterator;
     this._transportConfig = transportConfig;
     this._latestOnlyTopics = new Set(transportConfig.latestOnlyTopics ?? []);
+    const maxBufferDurationMs = transportConfig.maxBufferDurationMs;
+    this._maxBufferDurationMs = typeof maxBufferDurationMs === "number" && Number.isFinite(maxBufferDurationMs)
+      ? Math.max(1, maxBufferDurationMs)
+      : undefined;
     if (transportConfig.mode === "sab" && transportConfig.payloadRing) {
       this._sharedRing = new SharedPayloadRing(transportConfig.payloadRing);
     }
@@ -75,15 +89,26 @@ export class MessageCursor implements IMessageCursor<unknown> {
     const maxWallTimeMs = Math.max(1, options?.maxWallTimeMs ?? MessageCursor.DEFAULT_MAX_BATCH_WALL_MS);
     const messages: MessageEvent[] = [];
     const startTime = Date.now();
-    
+    const waitStart = performance.now();
+
     await this._waitForQueue(MessageCursor.EMPTY_QUEUE_WAIT_MS);
+    workerPerf.record("cursor.nextBatch.waitForQueue", performance.now() - waitStart);
     if (this._pumpError) {
       throw toThrownError(this._pumpError);
     }
     const first = this._takeNextQueuedMessage();
-    if (!first) return [];
+    if (!first) {
+      workerPerf.recordGauge("cursor.queue.messages", this._queue.length);
+      workerPerf.recordGauge("cursor.queue.mb", this._queueBytes / (1024 * 1024));
+      workerPerf.recordGauge("cursor.queue.durationMs", this._queueDurationMs());
+      workerPerf.recordGauge("cursor.nextBatch.rawMessages", 0);
+      workerPerf.recordGauge("cursor.nextBatch.sentMessages", 0);
+      return [];
+    }
     if (options?.endTime && toNano(first.receiveTime) > toNano(options.endTime)) {
       this._pendingMessage = first;
+      workerPerf.recordGauge("cursor.nextBatch.rawMessages", 0);
+      workerPerf.recordGauge("cursor.nextBatch.sentMessages", 0);
       return [];
     }
     messages.push(first);
@@ -103,8 +128,15 @@ export class MessageCursor implements IMessageCursor<unknown> {
       if (messages.length >= maxMessages) break;
     }
 
+    const coalesced = this._coalesceLatestOnlyTopics(messages);
+    workerPerf.recordGauge("cursor.queue.messages", this._queue.length);
+    workerPerf.recordGauge("cursor.queue.mb", this._queueBytes / (1024 * 1024));
+    workerPerf.recordGauge("cursor.queue.durationMs", this._queueDurationMs());
+    workerPerf.recordGauge("cursor.nextBatch.rawMessages", messages.length);
+    workerPerf.recordGauge("cursor.nextBatch.sentMessages", coalesced.length);
+    const transferred = this._transferBatch(coalesced);
     workerPerf.record("cursor.nextBatch.total", performance.now() - batchStart);
-    return this._transferBatch(this._coalesceLatestOnlyTopics(messages));
+    return transferred;
   }
 
   async end(): Promise<void> {
@@ -118,10 +150,13 @@ export class MessageCursor implements IMessageCursor<unknown> {
 
   private async _pump(): Promise<void> {
     try {
+      let sliceStart = performance.now();
+      let sliceMessages = 0;
       while (!this._closed && !this._done) {
         if (
           this._queue.length >= MessageCursor.DEFAULT_MAX_BUFFER_MESSAGES ||
-          this._queueBytes >= MessageCursor.DEFAULT_MAX_BUFFER_BYTES
+          this._queueBytes >= MessageCursor.DEFAULT_MAX_BUFFER_BYTES ||
+          this._isPastBufferDurationLimit()
         ) {
           await this._waitForCapacity();
           continue;
@@ -138,6 +173,21 @@ export class MessageCursor implements IMessageCursor<unknown> {
         this._queue.push(normalized);
         this._queueBytes += this._estimateMessageBytes(normalized);
         this._notifyQueueWaiters();
+
+        sliceMessages += 1;
+        const elapsedMs = performance.now() - sliceStart;
+        if (
+          sliceMessages >= MessageCursor.MAX_PUMP_SLICE_MESSAGES ||
+          elapsedMs >= MessageCursor.MAX_PUMP_SLICE_WALL_MS
+        ) {
+          workerPerf.record("cursor.pump.slice", elapsedMs);
+          workerPerf.recordGauge("cursor.queue.messages", this._queue.length);
+          workerPerf.recordGauge("cursor.queue.mb", this._queueBytes / (1024 * 1024));
+          workerPerf.recordGauge("cursor.queue.durationMs", this._queueDurationMs());
+          await yieldToEventLoop();
+          sliceStart = performance.now();
+          sliceMessages = 0;
+        }
       }
     } catch (error) {
       if (!this._closed) {
@@ -192,7 +242,8 @@ export class MessageCursor implements IMessageCursor<unknown> {
     if (
       this._closed ||
       (this._queue.length < MessageCursor.DEFAULT_MAX_BUFFER_MESSAGES &&
-        this._queueBytes < MessageCursor.DEFAULT_MAX_BUFFER_BYTES)
+        this._queueBytes < MessageCursor.DEFAULT_MAX_BUFFER_BYTES &&
+        !this._isPastBufferDurationLimit())
     ) {
       return;
     }
@@ -260,6 +311,23 @@ export class MessageCursor implements IMessageCursor<unknown> {
       const latestIndex = latestIndexByTopic.get(message.topic);
       return latestIndex == undefined || latestIndex === index;
     });
+  }
+
+  private _queueDurationMs(): number {
+    const first = this._pendingMessage ?? this._queue[0];
+    const last = this._queue[this._queue.length - 1] ?? this._pendingMessage;
+    if (!first || !last) {
+      return 0;
+    }
+    const durationNs = toNano(last.receiveTime) - toNano(first.receiveTime);
+    if (durationNs <= 0n) {
+      return 0;
+    }
+    return Number(durationNs) / 1e6;
+  }
+
+  private _isPastBufferDurationLimit(): boolean {
+    return this._maxBufferDurationMs != undefined && this._queueDurationMs() >= this._maxBufferDurationMs;
   }
 
   private _prepareMessageForTransport(event: MessageEvent): MessageEvent {

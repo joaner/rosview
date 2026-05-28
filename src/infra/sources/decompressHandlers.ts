@@ -2,9 +2,8 @@ import type { McapTypes } from "@mcap/core";
 import { decompress as fzstdDecompress } from "fzstd";
 import * as lz4js from "lz4js";
 
-// Use pure-JavaScript / ESM-compatible decompression libraries instead of
-// the @foxglove/wasm-* packages, which are CommonJS + Node.js Buffer and
-// cannot run inside an ES module worker in Vite dev mode.
+// @mcap/support currently pulls CommonJS wasm loaders that fail in Vite's
+// ES module worker build, so keep these browser-safe ESM handlers local.
 
 let handlersPromise: Promise<McapTypes.DecompressHandlers> | undefined;
 

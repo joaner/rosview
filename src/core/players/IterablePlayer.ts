@@ -23,6 +23,7 @@ const TRANSPORT_DIAGNOSTICS_POLL_INTERVAL_MS = 2000;
 const EMPTY_BATCH_BACKFILL_COOLDOWN_MS = 1000;
 const EMPTY_BATCH_BACKFILL_TRIGGER = 4;
 const BACKFILL_STALE_THRESHOLD_NS = 1_000_000_000n;
+const BACKFILL_STALE_TOPIC_PERIOD_MULTIPLIER = 3;
 const STALE_TOPIC_REFRESH_COOLDOWN_MS = 500;
 const SLOW_DISTRIBUTION_MS = 16;
 
@@ -162,6 +163,7 @@ export class IterablePlayer implements Player {
   private _fallbackBackfillCount = 0;
   private _lastFallbackBackfillMs = 0;
   private _lastStaleRefreshMs = 0;
+  private _staleRefreshInFlight = false;
   private _isBuffering = false;
   private _topicLastMessageNs = new Map<string, bigint>();
   private _highFrequencyConsumerSignature = "";
@@ -1004,10 +1006,7 @@ export class IterablePlayer implements Player {
     }
     this._currentTime = nextTime;
     this._clock.seek(this._currentTime, performance.now());
-    await this._refreshStaleTopicsFromBackfill(now, epoch);
-    if (!this._isPlaybackEpochCurrent(epoch)) {
-      return;
-    }
+    this._scheduleStaleTopicsRefresh(now, epoch);
 
     if (this._initialization && toNano(this._currentTime) >= toNano(this._initialization.end)) {
       if (this._isLooping) {
@@ -1238,7 +1237,10 @@ export class IterablePlayer implements Player {
     this._cursor = cursor;
   }
 
-  private async _refreshStaleTopicsFromBackfill(nowMs: number, epoch: number): Promise<void> {
+  private _scheduleStaleTopicsRefresh(nowMs: number, epoch: number): void {
+    if (this._staleRefreshInFlight) {
+      return;
+    }
     if (nowMs - this._lastStaleRefreshMs < STALE_TOPIC_REFRESH_COOLDOWN_MS) {
       return;
     }
@@ -1250,40 +1252,56 @@ export class IterablePlayer implements Player {
     const staleTopics = topics.filter((topic) => {
       const lastNs = this._topicLastMessageNs.get(topic);
       if (lastNs == null) return true;
-      return nowNs - lastNs > BACKFILL_STALE_THRESHOLD_NS;
+      return nowNs - lastNs > this._staleThresholdNsForTopic(topic);
     });
     if (staleTopics.length === 0) {
       return;
     }
     this._lastStaleRefreshMs = nowMs;
     const referenceTime = this._currentTime;
-    try {
-      const messages = await this._source.getBackfillMessages({
-        time: referenceTime,
-        topics: staleTopics,
-      });
-      if (!this._isPlaybackEpochCurrent(epoch)) {
-        return;
+    this._staleRefreshInFlight = true;
+    void (async () => {
+      try {
+        const messages = await this._source.getBackfillMessages({
+          time: referenceTime,
+          topics: staleTopics,
+        });
+        if (!this._isPlaybackEpochCurrent(epoch)) {
+          return;
+        }
+        // Same reasoning as in _handleEmptyBatch: latched topics would otherwise
+        // get re-delivered on every refresh tick (~5 Hz), causing panels like
+        // the 3D/URDF renderer to rebuild from scratch and leak GPU buffers.
+        const freshMessages = this._filterAlreadyDeliveredMessages(messages);
+        if (freshMessages.length === 0) {
+          return;
+        }
+        this._distributeMessages(freshMessages, referenceTime);
+        if (this._debugEnabled) {
+          console.debug("[Playback] stale refresh " + JSON.stringify({
+            staleTopicCount: staleTopics.length,
+            messageCount: messages.length,
+            freshCount: freshMessages.length,
+            currentTime: this._currentTime,
+          }));
+        }
+      } catch (err) {
+        console.warn("IterablePlayer: stale topic refresh failed", err);
+      } finally {
+        this._staleRefreshInFlight = false;
       }
-      // Same reasoning as in _handleEmptyBatch: latched topics would otherwise
-      // get re-delivered on every refresh tick (~5 Hz), causing panels like
-      // the 3D/URDF renderer to rebuild from scratch and leak GPU buffers.
-      const freshMessages = this._filterAlreadyDeliveredMessages(messages);
-      if (freshMessages.length === 0) {
-        return;
-      }
-      this._distributeMessages(freshMessages, referenceTime);
-      if (this._debugEnabled) {
-        console.debug("[Playback] stale refresh " + JSON.stringify({
-          staleTopicCount: staleTopics.length,
-          messageCount: messages.length,
-          freshCount: freshMessages.length,
-          currentTime: this._currentTime,
-        }));
-      }
-    } catch (err) {
-      console.warn("IterablePlayer: stale topic refresh failed", err);
+    })();
+  }
+
+  private _staleThresholdNsForTopic(topic: string): bigint {
+    const stats = this._initialization?.topicStats[topic];
+    const frequency = stats?.frequency;
+    if (typeof frequency !== "number" || !Number.isFinite(frequency) || frequency <= 0) {
+      return BACKFILL_STALE_THRESHOLD_NS;
     }
+    const topicPeriodNs = BigInt(Math.ceil(1_000_000_000 / frequency));
+    const topicThresholdNs = topicPeriodNs * BigInt(BACKFILL_STALE_TOPIC_PERIOD_MULTIPLIER);
+    return topicThresholdNs > BACKFILL_STALE_THRESHOLD_NS ? topicThresholdNs : BACKFILL_STALE_THRESHOLD_NS;
   }
 
   /**

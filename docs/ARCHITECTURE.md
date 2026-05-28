@@ -283,8 +283,8 @@ Fixed-width sidebar (collapsible) on the left with three tabs:
 | Library | Purpose |
 |---------|---------|
 | fflate | General compression/decompression (gzip/deflate/zlib) |
-| fzstd | Zstandard decompression (MCAP chunk compression) |
-| lz4js / lz4-wasm | LZ4 decompression (ROS1 `.bag` chunk compression) |
+| fzstd | Browser-safe Zstandard decompression for MCAP chunk compression |
+| lz4js | Browser-safe LZ4 decompression for MCAP/ROS1 chunk compression |
 
 ---
 
@@ -358,7 +358,7 @@ interface Readable {
 }
 
 // Local file
-class BlobReadable implements Readable { ... }
+// Uses @mcap/browser BlobReadable and adapts it to the MCAP IReadable API.
 
 // Remote file (HTTP Range + LRU cache)
 class CachedFilelike implements Readable {
@@ -809,7 +809,7 @@ rosview/
     └── infra/
         ├── workers/                    # mcap/bag/db3/hdf5 workers and transport
         ├── sources/                    # IterableSource implementations
-        └── services/                   # HttpFileReader, CachedFilelike, BlobReadable
+        └── services/                   # HttpFileReader, CachedFilelike
 ```
 
 ---

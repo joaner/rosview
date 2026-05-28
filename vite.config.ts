@@ -56,6 +56,7 @@ export default defineConfig({
       '@foxglove/rosmsg',
       '@foxglove/rosmsg-serialization',
       '@foxglove/rosmsg2-serialization',
+      '@mcap/browser',
       '@mcap/core',
       'eventemitter3',
       'flatbuffers/js/flexbuffers.js',
