@@ -5,7 +5,6 @@ import { canvasFoxgloveAdapter, imageFoxgloveAdapter } from '../Image/foxgloveAd
 import {
   jointStatePlotDefinition,
   jointStatePlotFoxgloveAdapter,
-  legacyPlotFoxgloveAdapter,
   legacyJointsFoxgloveAdapter,
 } from '../JointStatePlot';
 import { rawMessagesPanelDefinition } from '../RawMessages';
@@ -14,6 +13,7 @@ import { threeDPanelDefinition } from '../ThreeD';
 import { threeDFoxgloveAdapter } from '../ThreeD/foxgloveAdapter';
 import { posePanelDefinition } from '../Pose';
 import { poseFoxgloveAdapter } from '../Pose/foxgloveAdapter';
+import { plotPanelDefinition, plotFoxgloveAdapter } from '../Plot';
 import { topicGraphPanelDefinition } from '../TopicGraph';
 import { topicGraphFoxgloveAdapter } from '../TopicGraph/foxgloveAdapter';
 import { timelinePanelDefinition } from '../Timeline';
@@ -32,6 +32,7 @@ const definitions = [
   imagePanelDefinition,
   threeDPanelDefinition,
   posePanelDefinition,
+  plotPanelDefinition,
   jointStatePlotDefinition,
   timelinePanelDefinition,
   topicGraphPanelDefinition,
@@ -47,17 +48,16 @@ const definitionMap = new Map<PanelType, PanelDefinition<unknown>>(
 
 /**
  * Map from Foxglove panel type string (as encoded in the id prefix) to the
- * adapter we want to use. Legacy `Plot` and `Joints` entries are mapped to
- * the new `JointStatePlot` adapter so that old layout JSON round-trips safely.
+ * adapter we want to use. Legacy `Joints` entries still map to JointStatePlot;
+ * Foxglove `Plot` now maps to rosview's generic Plot panel.
  */
 const foxgloveAdapters = new Map<string, PanelFoxgloveAdapter<unknown>>([
   ['Image', imageFoxgloveAdapter],
   ['Canvas', canvasFoxgloveAdapter],
   ['3D', threeDFoxgloveAdapter],
   ['Pose', poseFoxgloveAdapter],
+  ['Plot', plotFoxgloveAdapter],
   ['JointStatePlot', jointStatePlotFoxgloveAdapter],
-  // Legacy Foxglove types — redirect to JointStatePlot
-  ['Plot', legacyPlotFoxgloveAdapter],
   ['Joints', legacyJointsFoxgloveAdapter],
   ['Timeline', timelineFoxgloveAdapter],
   ['RawMessages', rawMessagesFoxgloveAdapter],

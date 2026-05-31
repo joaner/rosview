@@ -16,6 +16,7 @@ import type { PanelType } from './types';
 
 export const PANEL_ICONS: Partial<Record<PanelType, LucideIcon>> = {
   Image: ImageIcon,
+  Plot: Activity,
   JointStatePlot: Activity,
   '3D': Box,
   Audio: Music,

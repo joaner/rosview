@@ -1,5 +1,6 @@
 {
   "panels.image.defaultTitle": "Image",
+  "panels.plot.defaultTitle": "Plot",
   "panels.jointStatePlot.defaultTitle": "JointState Plot",
   "panels.threeD.defaultTitle": "3D View",
   "panels.audio.defaultTitle": "Audio",

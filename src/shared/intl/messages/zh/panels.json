@@ -1,5 +1,6 @@
 {
   "panels.image.defaultTitle": "图像",
+  "panels.plot.defaultTitle": "图表",
   "panels.jointStatePlot.defaultTitle": "关节状态图",
   "panels.threeD.defaultTitle": "三维",
   "panels.audio.defaultTitle": "音频",

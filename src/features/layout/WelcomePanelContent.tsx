@@ -10,6 +10,7 @@ import { getDockviewApi } from './dockviewGlobalApi';
 /** Message id for the one-line blurb on each panel card (`layout.welcomePanel.desc.*`). */
 const PANEL_DESCRIPTION_IDS: Partial<Record<PanelType, string>> = {
   Image: 'layout.welcomePanel.desc.Image',
+  Plot: 'layout.welcomePanel.desc.Plot',
   JointStatePlot: 'layout.welcomePanel.desc.JointStatePlot',
   '3D': 'layout.welcomePanel.desc.3D',
   Audio: 'layout.welcomePanel.desc.Audio',

@@ -17,6 +17,7 @@
   "layout.welcomePanel.title": "Add a panel",
   "layout.welcomePanel.hint": "Select a panel type to open it here.",
   "layout.welcomePanel.desc.Image": "Display camera and compressed image topics",
+  "layout.welcomePanel.desc.Plot": "Plot numeric ROS fields and arrays over time",
   "layout.welcomePanel.desc.JointStatePlot": "Plot joint position, velocity, and effort over time",
   "layout.welcomePanel.desc.3D": "Visualize 3D markers, transforms, and point clouds",
   "layout.welcomePanel.desc.Audio": "Play back ROS audio message streams",

@@ -17,6 +17,7 @@
   "layout.welcomePanel.title": "パネルを追加",
   "layout.welcomePanel.hint": "パネル種類を選ぶとここに開きます。",
   "layout.welcomePanel.desc.Image": "カメラと圧縮画像トピックを表示",
+  "layout.welcomePanel.desc.Plot": "ROS の数値フィールドと配列をプロット",
   "layout.welcomePanel.desc.JointStatePlot": "関節位置・速度・トルクを時間でプロット",
   "layout.welcomePanel.desc.3D": "3D マーカー、座標変換、点群を可視化",
   "layout.welcomePanel.desc.Audio": "ROS オーディオメッセージを再生",

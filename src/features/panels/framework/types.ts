@@ -12,6 +12,7 @@ export type PanelType =
   | 'Image'
   | '3D'
   | 'Pose'
+  | 'Plot'
   | 'JointStatePlot'
   | 'Timeline'
   | 'TopicGraph'

@@ -1,5 +1,6 @@
 {
   "panels.image.defaultTitle": "画像",
+  "panels.plot.defaultTitle": "プロット",
   "panels.jointStatePlot.defaultTitle": "ジョイント状態",
   "panels.threeD.defaultTitle": "3D ビュー",
   "panels.audio.defaultTitle": "オーディオ",

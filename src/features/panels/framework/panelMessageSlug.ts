@@ -9,6 +9,7 @@ export const PANEL_TYPE_MESSAGE_SLUG: Record<PanelType, string> = {
   Image: 'image',
   '3D': 'threeD',
   Pose: 'pose',
+  Plot: 'plot',
   JointStatePlot: 'jointStatePlot',
   Timeline: 'timeline',
   TopicGraph: 'topicGraph',
