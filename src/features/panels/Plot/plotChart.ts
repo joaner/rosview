@@ -260,11 +260,13 @@ export interface PlotChartBuildContext {
   colors: PlotChartColors;
 }
 
+export type PlotUplotOptions = Omit<uPlot.Options, 'width' | 'height'>;
+
 export function createPlotUplotOptions(
   dataset: PlotDataset,
   hiddenSeries: Set<number>,
   ctx: PlotChartBuildContext,
-): uPlot.Options {
+): PlotUplotOptions {
   const { colors, xAxisMode, xRange, logStart, getCurrentTimeSec, panelId } = ctx;
 
   const useRelativeTimeAxis = xAxisMode === 'timestamp' && logStart != null;
@@ -335,7 +337,7 @@ export function createPlotUplotOptions(
 export function mountPlotChart(
   container: HTMLElement,
   dataset: PlotDataset,
-  options: uPlot.Options,
+  options: PlotUplotOptions,
   xRange?: { min: number; max: number },
 ): uPlot {
   const height = Math.max(container.offsetHeight || 200, 100);

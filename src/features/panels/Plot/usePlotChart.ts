@@ -47,9 +47,6 @@ export function usePlotChart({
   const topologyKeyRef = useRef('');
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
 
-  followingViewWidthRef.current = config.followingViewWidthSec;
-  xAxisModeRef.current = config.xAxisMode;
-
   const destroyChart = useCallback(() => {
     resizeObserverRef.current?.disconnect();
     resizeObserverRef.current = null;
@@ -97,8 +94,11 @@ export function usePlotChart({
 
     const nextTopology = plotChartTopologyKey(dataset);
     const chart = uplotRef.current;
+    const xAxisModeChanged = xAxisModeRef.current !== config.xAxisMode;
+    followingViewWidthRef.current = config.followingViewWidthSec;
+    xAxisModeRef.current = config.xAxisMode;
 
-    if (!chart || topologyKeyRef.current !== nextTopology || config.xAxisMode !== xAxisModeRef.current) {
+    if (!chart || topologyKeyRef.current !== nextTopology || xAxisModeChanged) {
       mountChart();
       return;
     }
@@ -107,7 +107,7 @@ export function usePlotChart({
     for (let index = 0; index < dataset.series.length; index++) {
       chart.setSeries(index + 1, { show: !hiddenSeries.has(index) });
     }
-  }, [config.xAxisMode, containerRef, dataset, destroyChart, hiddenSeries, mountChart]);
+  }, [config.followingViewWidthSec, config.xAxisMode, containerRef, dataset, destroyChart, hiddenSeries, mountChart]);
 
   useEffect(() => () => destroyChart(), [destroyChart]);
 

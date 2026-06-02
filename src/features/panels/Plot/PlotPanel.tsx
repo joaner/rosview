@@ -90,7 +90,7 @@ export const PlotPanel: React.FC<PlotPanelProps> = ({ player, panelId, config, s
     () => selectActivePlotTopics(config, topicByName),
     [config, topicByName],
   );
-  const hasPlotPaths = useMemo(() => hasEnabledPlotPaths(config), [config.series]);
+  const hasPlotPaths = useMemo(() => hasEnabledPlotPaths(config), [config]);
   const primary = selectPrimarySeries(config);
   const showJointStateFields = isPrimaryJointState(config, topicByName);
 

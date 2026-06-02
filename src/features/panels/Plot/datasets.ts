@@ -1,4 +1,3 @@
-import type uPlot from 'uplot';
 import type { MessageEvent } from '@/core/types/ros';
 import { paletteColor, type PlotConfig } from './defaults';
 import { plotWarningKey, type PlotDatasetWarning } from './plotWarnings';

@@ -61,10 +61,11 @@ export function subscribePlotLegendEntries(panelId: string, listener: Listener):
     bucket = new Set();
     listenersByPanelId.set(panelId, bucket);
   }
-  bucket.add(listener);
+  const listeners = bucket;
+  listeners.add(listener);
   return () => {
-    bucket!.delete(listener);
-    if (bucket!.size === 0) {
+    listeners.delete(listener);
+    if (listeners.size === 0) {
       listenersByPanelId.delete(panelId);
     }
   };

@@ -81,7 +81,10 @@ export function alignBuckets(
 
   // Fast path: single runtime series needs no union alignment.
   if (normalized.length === 1) {
-    const entry = normalized[0]!;
+    const entry = normalized[0];
+    if (!entry) {
+      return { data: [[]] as uPlot.AlignedData, sampleRatio: 1 };
+    }
     let xValues = entry.points.map((point) => point.x);
     let yValues = entry.points.map((point) => point.y ?? null);
     if (downsample && xValues.length > maxPoints) {

@@ -1,7 +1,6 @@
 import {
   resolvePlotEventTimestamp,
   timeToSec,
-  type NumericPoint,
 } from '@/core/analysis/timeSeries';
 import type { MessageEvent, Time } from '@/core/types/ros';
 import { extractPlotPathValues, hasDerivativeModifier } from './messagePath';
@@ -160,10 +159,9 @@ export function collectCustomPoints(
       continue;
     }
     const topicEvents = byTopic.get(series.topic) ?? [];
+    const lastEvent = topicEvents.at(-1);
     const sourceEvents = latestOnly
-      ? topicEvents.length > 0
-        ? [topicEvents[topicEvents.length - 1]!]
-        : []
+      ? lastEvent ? [lastEvent] : []
       : topicEvents;
 
     for (const event of sourceEvents) {

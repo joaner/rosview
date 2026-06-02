@@ -170,7 +170,12 @@ describe('buildPlotDataset', () => {
       const values = dataset.data[seriesIndex] as Array<number | null>;
       const nonNullIndices = values.flatMap((value, index) => (value != null ? [index] : []));
       for (let index = 1; index < nonNullIndices.length; index++) {
-        expect(nonNullIndices[index]! - nonNullIndices[index - 1]!).toBe(1);
+        const curr = nonNullIndices[index];
+        const prev = nonNullIndices[index - 1];
+        if (curr === undefined || prev === undefined) {
+          throw new Error('expected consecutive non-null indices');
+        }
+        expect(curr - prev).toBe(1);
       }
     }
   });
@@ -205,11 +210,17 @@ describe('buildPlotDataset', () => {
     const xValues = dataset.data[0] as number[];
     for (let seriesIndex = 1; seriesIndex < dataset.data.length; seriesIndex++) {
       const yValues = dataset.data[seriesIndex] as Array<number | null>;
-      const native = xValues.flatMap((x, index) =>
-        yValues[index] != null ? [{ x, y: yValues[index] as number }] : [],
-      );
+      const native = xValues.flatMap((x, index) => {
+        const y = yValues[index];
+        return y != null ? [{ x, y }] : [];
+      });
       for (let index = 1; index < native.length; index++) {
-        expect(native[index]!.x).toBeGreaterThan(native[index - 1]!.x);
+        const curr = native[index];
+        const prev = native[index - 1];
+        if (!curr || !prev) {
+          throw new Error('expected consecutive native points');
+        }
+        expect(curr.x).toBeGreaterThan(prev.x);
       }
       expect(native.length).toBeGreaterThan(1);
     }

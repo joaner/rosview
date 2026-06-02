@@ -22,7 +22,6 @@ import {
   type JointStateField,
   type PlotConfig,
   type PlotLineStyle,
-  type PlotSeriesConfig,
   type PlotXAxisMode,
 } from './defaults';
 import { exportPlotCsvFromConfig } from './exportCsv';

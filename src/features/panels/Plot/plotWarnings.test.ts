@@ -5,7 +5,8 @@ import { plotWarningKey, formatPlotDatasetWarning } from './plotWarnings';
 const formatMessage: IntlShape['formatMessage'] = (descriptor, values) => {
   const id = typeof descriptor === 'string' ? descriptor : descriptor.id;
   if (id === 'panels.plot.warning.noNumericValues') {
-    return `No numeric values for ${values?.topic}.${values?.path}`;
+    const params = values as { topic?: string; path?: string } | undefined;
+    return `No numeric values for ${params?.topic ?? ''}.${params?.path ?? ''}`;
   }
   if (id === 'panels.plot.warning.nonIndexedSource') {
     return 'Non-indexed source';
