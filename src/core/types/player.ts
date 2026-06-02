@@ -73,6 +73,8 @@ export interface PlayerState {
     isLooping: boolean;
     speed: number;
     problems: PlayerProblem[];
+    /** Whether the source supports efficient per-topic random access reads. */
+    randomAccessByTopic?: boolean;
   };
 }
 

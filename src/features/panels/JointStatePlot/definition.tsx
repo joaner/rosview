@@ -269,6 +269,7 @@ const JointStatePanelWrapper: React.FC<JointStatePanelProps> = ({
 
 export const jointStatePlotDefinition: PanelDefinition<JointStatePlotConfig> = {
   type: 'JointStatePlot',
+  hideFromPanelPicker: true,
   defaultTitle: 'JointState Plot',
   createDefaultConfig: defaultJointStatePlotConfig,
   configSchema: { version: 1, parse: parseJointStatePlotConfig },

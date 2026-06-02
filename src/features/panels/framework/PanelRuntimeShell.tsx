@@ -82,6 +82,14 @@ export function PanelRuntimeShell<TConfig>({
     };
   }, [panelId]);
 
+  useEffect(() => {
+    if (definition.type !== 'JointStatePlot') return;
+    console.warn(
+      `[rosview] JointStatePlot panel "${panelId}" is deprecated and will be removed in the next version. ` +
+      'Please use the Plot panel for joint state visualization.',
+    );
+  }, [definition.type, panelId]);
+
   const resetPanel = useCallback((): void => {
     setPanelConfig<TConfig>(panelId, definition.createDefaultConfig());
     setResetKey((value) => value + 1);

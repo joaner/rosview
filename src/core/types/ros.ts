@@ -66,6 +66,12 @@ export interface Initialization {
    * typically leave it unset.
    */
   preferredSamplingFps?: number;
+  /**
+   * When true, the source supports efficient random access by topic and time
+   * (e.g. MCAP chunk index, SQLite db3). Plot panels can read only subscribed
+   * topics without scanning the full recording.
+   */
+  randomAccessByTopic?: boolean;
 }
 
 export interface MessageEvent<T = unknown> {

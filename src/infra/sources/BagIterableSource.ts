@@ -160,6 +160,7 @@ export class BagIterableSource implements IIterableSource {
       publishersByTopic,
       topicStats,
       problems: [],
+      randomAccessByTopic: false,
     };
   }
 

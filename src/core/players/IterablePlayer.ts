@@ -411,6 +411,7 @@ export class IterablePlayer implements Player {
         isLooping: this._isLooping,
         speed: this._speed,
         problems: this._initialization.problems,
+        randomAccessByTopic: this._initialization.randomAccessByTopic,
       };
 
       messageBus.reset();

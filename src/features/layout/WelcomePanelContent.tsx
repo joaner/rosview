@@ -1,6 +1,6 @@
 import React, { useCallback, useMemo } from 'react';
 import { useIntl } from 'react-intl';
-import { getPanelDefinitions } from '../panels/registry';
+import { getAddablePanelDefinitions } from '../panels/registry';
 import { PanelTypeIcon } from '../panels/framework/panelIcons';
 import { PANEL_TYPE_MESSAGE_SLUG } from '../panels/framework/panelMessageSlug';
 import type { PanelType } from '../panels/framework/types';
@@ -10,6 +10,7 @@ import { getDockviewApi } from './dockviewGlobalApi';
 /** Message id for the one-line blurb on each panel card (`layout.welcomePanel.desc.*`). */
 const PANEL_DESCRIPTION_IDS: Partial<Record<PanelType, string>> = {
   Image: 'layout.welcomePanel.desc.Image',
+  Plot: 'layout.welcomePanel.desc.Plot',
   JointStatePlot: 'layout.welcomePanel.desc.JointStatePlot',
   '3D': 'layout.welcomePanel.desc.3D',
   Audio: 'layout.welcomePanel.desc.Audio',
@@ -27,7 +28,7 @@ interface WelcomePanelContentProps {
 export const WelcomePanelContent: React.FC<WelcomePanelContentProps> = ({ welcomePanelId }) => {
   const { formatMessage } = useIntl();
   const definitions = useMemo(
-    () => getPanelDefinitions().filter((d) => d.type !== 'Unavailable'),
+    () => getAddablePanelDefinitions(),
     [],
   );
 
