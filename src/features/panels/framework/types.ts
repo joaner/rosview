@@ -107,6 +107,8 @@ export interface PanelDefinition<TConfig = unknown> {
    * any React node; it is mounted inside a scrollable sidebar container.
    */
   renderSettings?: (ctx: PanelSettingsContext<TConfig>) => React.ReactNode;
+  /** When true, panel stays registered for layout restore but is omitted from add-panel menus. */
+  hideFromPanelPicker?: boolean;
 }
 
 export interface PanelInstanceSnapshot {

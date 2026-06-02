@@ -621,6 +621,16 @@ export function importFoxgloveLayout(
       extras: decoded.extras,
     };
     restored += 1;
+    if (
+      adapter.internalType === 'JointStatePlot'
+      || foxgloveType === 'JointStatePlot'
+      || foxgloveType === 'Joints'
+    ) {
+      console.warn(
+        `[rosview] Layout panel "${panelId}" uses deprecated JointStatePlot and will stop working in a future version. ` +
+        'Please migrate to the Plot panel for joint state visualization.',
+      );
+    }
     serializedPanels[panelId] = {
       id: panelId,
       contentComponent: adapter.internalType,

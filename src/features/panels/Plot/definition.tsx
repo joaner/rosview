@@ -58,6 +58,9 @@ const KNOWN_KEYS = [
   'followingViewWidthSec',
   'syncX',
   'downsampleMode',
+  'jointStateFields',
+  'hiddenLegendKeys',
+  'nonIndexedMaxMessages',
 ] as const;
 
 function fromConfig(config: FoxgloveConfig): FoxgloveAdapterDecoded<PlotConfig> {

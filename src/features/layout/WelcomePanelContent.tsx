@@ -1,6 +1,6 @@
 import React, { useCallback, useMemo } from 'react';
 import { useIntl } from 'react-intl';
-import { getPanelDefinitions } from '../panels/registry';
+import { getAddablePanelDefinitions } from '../panels/registry';
 import { PanelTypeIcon } from '../panels/framework/panelIcons';
 import { PANEL_TYPE_MESSAGE_SLUG } from '../panels/framework/panelMessageSlug';
 import type { PanelType } from '../panels/framework/types';
@@ -28,7 +28,7 @@ interface WelcomePanelContentProps {
 export const WelcomePanelContent: React.FC<WelcomePanelContentProps> = ({ welcomePanelId }) => {
   const { formatMessage } = useIntl();
   const definitions = useMemo(
-    () => getPanelDefinitions().filter((d) => d.type !== 'Unavailable'),
+    () => getAddablePanelDefinitions(),
     [],
   );
 

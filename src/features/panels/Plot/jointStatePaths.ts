@@ -1,4 +1,3 @@
-import type { DetectedPlotPath } from './schemaRegistry/types';
 import type { JointStateField } from './defaults';
 
 const JOINT_STATE_SLICE_PATHS = new Set(['position[:]', 'velocity[:]', 'effort[:]']);
@@ -10,10 +9,6 @@ export function combinePlotPaths(paths: readonly string[]): string {
 
 export function buildJointStateCombinedPath(fields: readonly JointStateField[]): string {
   return combinePlotPaths(fields.map((field) => `${field}[:]`));
-}
-
-export function combinedPathFromDetected(detected: readonly DetectedPlotPath[]): string {
-  return combinePlotPaths(detected.map((entry) => entry.path));
 }
 
 /** Remove legacy auto-split JointState slots (one field path per extra series). */

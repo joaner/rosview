@@ -13,7 +13,7 @@ import {
 } from './rosviewTabContextMenu';
 import { WELCOME_PANEL_ID } from './dockviewIds';
 import { openDockviewPanel } from './dockviewController';
-import { getFoxgloveAdapter, getPanelDefinition, getPanelDefinitions, hasFoxgloveAdapter, hasPanelDefinition } from '../panels/registry';
+import { getAddablePanelDefinitions, getFoxgloveAdapter, getPanelDefinition, hasFoxgloveAdapter, hasPanelDefinition } from '../panels/registry';
 import { PanelTabAddPanelDefinitionsSubmenus } from './PanelTabAddPanelDefinitionsSubmenus';
 import { PanelTabActions } from './PanelTabActions';
 import { PANEL_TAB_EXPANDED_MIN_WIDTH_PX } from './layoutConstants';
@@ -70,7 +70,7 @@ export const PanelTabHeader: React.FC<IDockviewPanelHeaderProps> = ({ api, conta
   const useCompactTabActions =
     tabWidth === undefined ? true : tabWidth < PANEL_TAB_EXPANDED_MIN_WIDTH_PX;
   const definitions = useMemo(
-    () => getPanelDefinitions().filter((d) => d.type !== 'Unavailable'),
+    () => getAddablePanelDefinitions(),
     [],
   );
   const [ctx, setCtx] = useState<{ x: number; y: number } | null>(null);

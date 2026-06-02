@@ -72,6 +72,12 @@ export function getPanelDefinitions(): PanelDefinition<unknown>[] {
   return [...definitions] as PanelDefinition<unknown>[];
 }
 
+export function getAddablePanelDefinitions(): PanelDefinition<unknown>[] {
+  return getPanelDefinitions().filter(
+    (definition) => definition.type !== 'Unavailable' && !definition.hideFromPanelPicker,
+  );
+}
+
 export function getPanelDefinition(type: PanelType): PanelDefinition<unknown> {
   const definition = definitionMap.get(type);
   if (!definition) {

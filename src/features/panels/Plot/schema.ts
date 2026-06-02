@@ -15,6 +15,7 @@ import {
   type PlotSeriesConfig,
   type PlotXAxisMode,
 } from './defaults';
+import { normalizePlotConfig } from './plotConfigNormalize';
 
 function parseLineStyle(input: Record<string, unknown>, fallback: PlotLineStyle): PlotLineStyle {
   if (PLOT_LINE_STYLES.includes(input.lineStyle as PlotLineStyle)) {
@@ -82,7 +83,7 @@ export function parsePlotConfig(input: unknown): PlotConfig {
     ? input.series.map(parseSeries).filter((item) => item.id.length > 0)
     : base.series;
 
-  return {
+  return normalizePlotConfig({
     series: series.length > 0 ? series : base.series,
     xAxisMode: parseXAxisMode(input.xAxisMode, base.xAxisMode),
     maxPoints: clampNumber(input.maxPoints, base.maxPoints, MIN_PLOT_POINTS, MAX_PLOT_POINTS),
@@ -97,5 +98,5 @@ export function parsePlotConfig(input: unknown): PlotConfig {
     ),
     jointStateFields: parseJointStateFields(input.jointStateFields, base.jointStateFields),
     hiddenLegendKeys: parseHiddenLegendKeys(input.hiddenLegendKeys),
-  };
+  });
 }
