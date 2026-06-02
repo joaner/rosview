@@ -10,7 +10,7 @@ import type { PlotDatasetWarning } from './plotWarnings';
 import type { PlotRuntimeSeries, PointBucket } from './types';
 import { getLatestEventForTopic, indexEventsByTopic } from './plotEventIndex';
 
-function isEnabledSeries(series: PlotSeriesConfig): boolean {
+export function isEnabledSeries(series: PlotSeriesConfig): boolean {
   return series.enabled && series.topic.length > 0 && series.path.trim().length > 0;
 }
 
@@ -26,7 +26,7 @@ function legendLabel(series: PlotSeriesConfig, labelSuffix: string): string {
   return series.topic ? `${series.topic} · ${pathLabel}` : pathLabel;
 }
 
-function extractXValues(message: unknown, xAxisPath: string) {
+export function extractXValues(message: unknown, xAxisPath: string) {
   if (xAxisPath === LASER_SCAN_ANGLE_X_PATH) {
     if (!message || typeof message !== 'object') return [];
     const record = message as Record<string, unknown>;
@@ -43,7 +43,7 @@ function extractXValues(message: unknown, xAxisPath: string) {
   return extractPlotPathValues(message, xAxisPath);
 }
 
-function pushPoint(
+export function pushPoint(
   buckets: Map<string, PointBucket>,
   series: PlotSeriesConfig,
   keySuffix: string,

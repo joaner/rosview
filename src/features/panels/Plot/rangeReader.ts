@@ -9,6 +9,11 @@ export interface PlotRangeReadProgress {
   messages: number;
 }
 
+export interface PlotRangeReadBatch {
+  messages: MessageEvent[];
+  progress: PlotRangeReadProgress;
+}
+
 export interface PlotRangeReadArgs {
   player: Player;
   start: Time;
@@ -18,6 +23,10 @@ export interface PlotRangeReadArgs {
   onProgress?: (progress: PlotRangeReadProgress) => void;
   /** Stop accumulating after this many messages (non-indexed sources). */
   maxMessages?: number;
+}
+
+export interface PlotRangeIncrementalReadArgs extends PlotRangeReadArgs {
+  onBatch?: (batch: PlotRangeReadBatch) => void;
 }
 
 const DEFAULT_SEGMENTS = 24;
@@ -50,6 +59,23 @@ async function readSegment(player: Player, args: GetMessagesInTimeRangeArgs): Pr
   return rangeQueryCache.getOrCreate(player, args);
 }
 
+function assertNotAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) {
+    throw new DOMException('Plot range read aborted', 'AbortError');
+  }
+}
+
+function sortMessages(messages: MessageEvent[]): MessageEvent[] {
+  return messages.sort((a, b) => {
+    const diff = toNano(a.receiveTime) - toNano(b.receiveTime);
+    return diff < 0n ? -1 : diff > 0n ? 1 : a.topic.localeCompare(b.topic);
+  });
+}
+
+function yieldToEventLoop(): Promise<void> {
+  return new Promise((resolve) => globalThis.setTimeout(resolve, 0));
+}
+
 export async function readPlotRange({
   player,
   start,
@@ -66,9 +92,7 @@ export async function readPlotRange({
   const messageLimit = maxMessages != null && maxMessages > 0 ? maxMessages : undefined;
 
   for (let i = 0; i < segments.length; i++) {
-    if (signal?.aborted) {
-      throw new DOMException('Plot range read aborted', 'AbortError');
-    }
+    assertNotAborted(signal);
     if (messageLimit != null && deduped.size >= messageLimit) {
       break;
     }
@@ -85,11 +109,94 @@ export async function readPlotRange({
       }
     }
     onProgress?.({ completed: i + 1, total: segments.length, messages: deduped.size });
-    await new Promise((resolve) => globalThis.setTimeout(resolve, 0));
+    await yieldToEventLoop();
   }
 
-  return [...deduped.values()].sort((a, b) => {
-    const diff = toNano(a.receiveTime) - toNano(b.receiveTime);
-    return diff < 0n ? -1 : diff > 0n ? 1 : a.topic.localeCompare(b.topic);
-  });
+  return sortMessages([...deduped.values()]);
+}
+
+function appendNewMessages(
+  deduped: Map<string, MessageEvent>,
+  messages: MessageEvent[],
+  messageLimit?: number,
+): MessageEvent[] {
+  const out: MessageEvent[] = [];
+  for (const event of messages) {
+    if (messageLimit != null && deduped.size >= messageLimit) {
+      break;
+    }
+    const key = messageKey(event);
+    if (deduped.has(key)) {
+      continue;
+    }
+    deduped.set(key, event);
+    out.push(event);
+  }
+  return out;
+}
+
+export async function readPlotRangeIncremental({
+  player,
+  start,
+  end,
+  topics,
+  signal,
+  onProgress,
+  onBatch,
+  maxMessages,
+}: PlotRangeIncrementalReadArgs): Promise<MessageEvent[]> {
+  if (topics.length === 0 || (!player.getMessagesInTimeRange && !player.streamMessagesInTimeRange)) return [];
+  const uniqueTopics = Array.from(new Set(topics)).sort();
+  const segments = makeSegments(start, end);
+  const deduped = new Map<string, MessageEvent>();
+  const messageLimit = maxMessages != null && maxMessages > 0 ? maxMessages : undefined;
+
+  for (let i = 0; i < segments.length; i++) {
+    assertNotAborted(signal);
+    if (messageLimit != null && deduped.size >= messageLimit) {
+      break;
+    }
+    const segment = segments[i];
+    if (player.streamMessagesInTimeRange) {
+      for await (const messages of player.streamMessagesInTimeRange({
+        start: segment.start,
+        end: segment.end,
+        topics: uniqueTopics,
+        maxMessages: messageLimit == null ? undefined : messageLimit - deduped.size,
+      })) {
+        assertNotAborted(signal);
+        const added = appendNewMessages(deduped, messages, messageLimit);
+        const progress = { completed: i, total: segments.length, messages: deduped.size };
+        if (added.length > 0) {
+          onBatch?.({ messages: added, progress });
+        }
+        onProgress?.(progress);
+        if (messageLimit != null && deduped.size >= messageLimit) {
+          break;
+        }
+        await yieldToEventLoop();
+      }
+    } else {
+      const messages = await readSegment(player, {
+        start: segment.start,
+        end: segment.end,
+        topics: uniqueTopics,
+      });
+      const added = appendNewMessages(deduped, messages, messageLimit);
+      const progress = { completed: i + 1, total: segments.length, messages: deduped.size };
+      if (added.length > 0) {
+        onBatch?.({ messages: added, progress });
+      }
+      onProgress?.(progress);
+      await yieldToEventLoop();
+      continue;
+    }
+
+    const progress = { completed: i + 1, total: segments.length, messages: deduped.size };
+    onProgress?.(progress);
+    assertNotAborted(signal);
+    await yieldToEventLoop();
+  }
+
+  return sortMessages([...deduped.values()]);
 }

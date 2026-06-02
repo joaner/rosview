@@ -1,11 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Player } from '@/core/types/player';
 import type { Time } from '@/core/types/ros';
-import { buildPlotDataset, type PlotDataset } from './datasets';
+import type { PlotDataset } from './datasets';
 import type { PlotConfig } from './defaults';
+import { PlotDatasetAccumulator } from './plotDatasetAccumulator';
 import { plotDataConfigKey } from './plotConfigSelectors';
-import { readPlotRange, type PlotRangeReadProgress } from './rangeReader';
+import { readPlotRangeIncremental, type PlotRangeReadProgress } from './rangeReader';
 import type { PlotDatasetWarning } from './plotWarnings';
+
+const MIN_DATASET_FLUSH_MS = 150;
 
 const EMPTY_DATASET: PlotDataset = {
   xLabel: 'time',
@@ -54,6 +57,9 @@ export function usePlotPanelData({
   const dataConfigKey = useMemo(() => plotDataConfigKey(config), [config]);
   const progressRef = useRef<PlotRangeReadProgress | null>(null);
   const progressFrameRef = useRef<number | null>(null);
+  const datasetFrameRef = useRef<number | null>(null);
+  const datasetTimeoutRef = useRef<ReturnType<typeof globalThis.setTimeout> | null>(null);
+  const lastDatasetFlushMsRef = useRef(0);
 
   const flushProgress = useCallback(() => {
     progressFrameRef.current = null;
@@ -71,6 +77,17 @@ export function usePlotPanelData({
     [flushProgress],
   );
 
+  const cancelDatasetFlush = useCallback(() => {
+    if (datasetFrameRef.current != null) {
+      cancelAnimationFrame(datasetFrameRef.current);
+      datasetFrameRef.current = null;
+    }
+    if (datasetTimeoutRef.current != null) {
+      globalThis.clearTimeout(datasetTimeoutRef.current);
+      datasetTimeoutRef.current = null;
+    }
+  }, []);
+
   useEffect(() => {
     if (!startTime || !endTime || activeTopics.length === 0 || !hasPlotPaths) {
       setDataset(EMPTY_DATASET);
@@ -84,14 +101,39 @@ export function usePlotPanelData({
     setLoading(true);
     setProgress(null);
     setError(null);
+    lastDatasetFlushMsRef.current = 0;
 
     const isIndexed = randomAccessByTopic !== false;
     const maxMessages = isIndexed ? undefined : config.nonIndexedMaxMessages;
     const extraWarnings: PlotDatasetWarning[] = isIndexed
       ? []
       : [{ kind: 'nonIndexedSource' }];
+    const accumulator = new PlotDatasetAccumulator(config, {
+      forceDownsample: !isIndexed,
+      extraWarnings,
+      logStart: startTime,
+      logEnd: endTime,
+    });
 
-    void readPlotRange({
+    const flushDataset = () => {
+      datasetFrameRef.current = null;
+      datasetTimeoutRef.current = null;
+      if (controller.signal.aborted) return;
+      lastDatasetFlushMsRef.current = performance.now();
+      setDataset(accumulator.buildDataset());
+    };
+
+    const scheduleDatasetFlush = () => {
+      if (datasetFrameRef.current != null || datasetTimeoutRef.current != null) return;
+      const elapsedMs = performance.now() - lastDatasetFlushMsRef.current;
+      const delayMs = Math.max(0, MIN_DATASET_FLUSH_MS - elapsedMs);
+      datasetTimeoutRef.current = globalThis.setTimeout(() => {
+        datasetTimeoutRef.current = null;
+        datasetFrameRef.current = requestAnimationFrame(flushDataset);
+      }, delayMs);
+    };
+
+    void readPlotRangeIncremental({
       player,
       start: startTime,
       end: endTime,
@@ -99,17 +141,15 @@ export function usePlotPanelData({
       signal: controller.signal,
       onProgress,
       maxMessages,
+      onBatch: ({ messages }) => {
+        accumulator.append(messages);
+        scheduleDatasetFlush();
+      },
     })
-      .then((messages) => {
+      .then(() => {
         if (controller.signal.aborted) return;
-        setDataset(
-          buildPlotDataset(messages, config, {
-            forceDownsample: !isIndexed,
-            extraWarnings,
-            logStart: startTime,
-            logEnd: endTime,
-          }),
-        );
+        cancelDatasetFlush();
+        flushDataset();
       })
       .catch((err: unknown) => {
         if (!isAbortError(err)) {
@@ -124,6 +164,7 @@ export function usePlotPanelData({
             cancelAnimationFrame(progressFrameRef.current);
             progressFrameRef.current = null;
           }
+          cancelDatasetFlush();
         }
       });
 
@@ -133,6 +174,7 @@ export function usePlotPanelData({
         cancelAnimationFrame(progressFrameRef.current);
         progressFrameRef.current = null;
       }
+      cancelDatasetFlush();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- dataConfigKey captures data-affecting config fields
   }, [
@@ -140,6 +182,7 @@ export function usePlotPanelData({
     dataConfigKey,
     endTime,
     hasPlotPaths,
+    cancelDatasetFlush,
     onProgress,
     player,
     randomAccessByTopic,

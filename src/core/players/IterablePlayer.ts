@@ -3,6 +3,7 @@ import type {
   HighFrequencyConsumer,
   Player,
   PlayerState,
+  StreamMessagesInTimeRangeArgs,
   Subscription,
 } from '@/core/types/player';
 import { PLAYBACK_SPEED_MAX } from '@/core/types/player';
@@ -26,6 +27,9 @@ const BACKFILL_STALE_THRESHOLD_NS = 1_000_000_000n;
 const BACKFILL_STALE_TOPIC_PERIOD_MULTIPLIER = 3;
 const STALE_TOPIC_REFRESH_COOLDOWN_MS = 500;
 const SLOW_DISTRIBUTION_MS = 16;
+const RANGE_READ_MAX_MESSAGES = 80_000;
+const RANGE_READ_BATCH_MESSAGES = 2048;
+const RANGE_READ_BATCH_WALL_MS = 16;
 
 function isSameRanges(nextValue?: Range[], prevValue?: Range[]): boolean {
   if (nextValue === prevValue) {
@@ -1306,21 +1310,20 @@ export class IterablePlayer implements Player {
   }
 
   /**
-   * Independent range scan for diagnostics (Align). Uses a short-lived cursor;
-   * does not replace the playback cursor. Drains the iterator until an empty
-   * batch; partial batches can still have more messages (MessageCursor caps batch size).
+   * Independent range scan for diagnostics and panels. Uses a short-lived cursor;
+   * does not replace the playback cursor. Batches are yielded as soon as the
+   * worker cursor produces them so callers can render partial results.
    */
-  async getMessagesInTimeRange(args: GetMessagesInTimeRangeArgs): Promise<MessageEvent[]> {
-    const MAX = 80_000;
+  async *streamMessagesInTimeRange(args: StreamMessagesInTimeRangeArgs): AsyncIterable<MessageEvent[]> {
     if (!this._initialization || args.topics.length === 0) {
-      return [];
+      return;
     }
     const start = this._clampToRange(args.start);
     const end = this._clampToRange(args.end);
     const startNs = toNano(start);
     const endNs = toNano(end);
     if (startNs > endNs) {
-      return [];
+      return;
     }
 
     const cursor = await this._source.getMessageCursor({
@@ -1328,33 +1331,62 @@ export class IterablePlayer implements Player {
       endTime: end,
       topics: args.topics,
     });
-    const out: MessageEvent[] = [];
+    const maxMessages =
+      typeof args.maxMessages === "number" && Number.isFinite(args.maxMessages) && args.maxMessages > 0
+        ? Math.floor(args.maxMessages)
+        : RANGE_READ_MAX_MESSAGES;
+    const batchSize =
+      typeof args.batchSize === "number" && Number.isFinite(args.batchSize) && args.batchSize > 0
+        ? Math.floor(args.batchSize)
+        : RANGE_READ_BATCH_MESSAGES;
+    const batchWallTimeMs =
+      typeof args.batchWallTimeMs === "number" && Number.isFinite(args.batchWallTimeMs) && args.batchWallTimeMs > 0
+        ? Math.floor(args.batchWallTimeMs)
+        : RANGE_READ_BATCH_WALL_MS;
+    let emitted = 0;
     try {
       for (;;) {
-        if (out.length >= MAX) {
+        if (emitted >= maxMessages) {
           break;
         }
         const batch = await cursor.nextBatch(86_400_000, {
-          maxMessages: 2048,
-          maxWallTimeMs: 16,
+          maxMessages: Math.min(batchSize, maxMessages - emitted),
+          maxWallTimeMs: batchWallTimeMs,
         });
         if (batch.length === 0) {
           break;
         }
         const resolved = this._source.resolveMessageBatch(batch);
+        const out: MessageEvent[] = [];
         for (const m of resolved) {
           const t = toNano(m.receiveTime);
           if (t < startNs || t > endNs) {
             continue;
           }
           out.push(m);
-          if (out.length >= MAX) {
+          emitted++;
+          if (emitted >= maxMessages) {
             break;
           }
+        }
+        if (out.length > 0) {
+          yield out;
         }
       }
     } finally {
       await cursor.end();
+    }
+  }
+
+  /**
+   * Independent range scan for diagnostics (Align). Uses a short-lived cursor;
+   * does not replace the playback cursor. Drains the iterator until an empty
+   * batch; partial batches can still have more messages (MessageCursor caps batch size).
+   */
+  async getMessagesInTimeRange(args: GetMessagesInTimeRangeArgs): Promise<MessageEvent[]> {
+    const out: MessageEvent[] = [];
+    for await (const batch of this.streamMessagesInTimeRange(args)) {
+      out.push(...batch);
     }
     return out;
   }
