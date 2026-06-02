@@ -39,4 +39,28 @@ describe('extractPlotPathValues', () => {
       { key: 'data', label: 'data', value: 2 },
     ]);
   });
+
+  it('extracts multiple comma-separated paths in one series', () => {
+    const message = {
+      name: ['j0', 'j1', 'j2'],
+      position: [0.1, 0.2, 0.3],
+      effort: [10, 20, 30],
+    };
+    expect(extractPlotPathValues(message, 'position[1],position[2],effort[1],effort[2]')).toEqual([
+      { key: 'position[1]', label: 'position[1]', value: 0.2 },
+      { key: 'position[2]', label: 'position[2]', value: 0.3 },
+      { key: 'effort[1]', label: 'effort[1]', value: 20 },
+      { key: 'effort[2]', label: 'effort[2]', value: 30 },
+    ]);
+  });
+
+  it('extracts multiple slice paths separated by spaces', () => {
+    const message = { position: [0.1, 0.2], velocity: [3, 4] };
+    expect(extractPlotPathValues(message, 'position[:] velocity[:]')).toEqual([
+      { key: 'position[0]', label: 'position[0]', value: 0.1 },
+      { key: 'position[1]', label: 'position[1]', value: 0.2 },
+      { key: 'velocity[0]', label: 'velocity[0]', value: 3 },
+      { key: 'velocity[1]', label: 'velocity[1]', value: 4 },
+    ]);
+  });
 });

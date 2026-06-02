@@ -38,9 +38,10 @@ describe('mergeDetectedSeries', () => {
 });
 
 describe('rebuildJointStateSeries', () => {
-  it('rebuilds primary joint fields while keeping manually added series', () => {
+  it('updates primary series path with combined joint fields and removes auto-split slots', () => {
     const current = [
       createPlotSeries({ id: 's1', topic: '/joint_cmd', path: 'position[:]' }),
+      createPlotSeries({ id: 'auto-vel', topic: '/joint_cmd', path: 'velocity[:]' }),
       createPlotSeries({ id: 's2', topic: '/joint_states', path: 'position[0]' }),
     ];
     const rebuilt = rebuildJointStateSeries(
@@ -49,10 +50,24 @@ describe('rebuildJointStateSeries', () => {
       'sensor_msgs/msg/JointState',
       ['position', 'velocity'],
     );
-    expect(rebuilt.length).toBeGreaterThanOrEqual(3);
+    expect(rebuilt).toHaveLength(2);
+    expect(rebuilt[0]?.id).toBe('s1');
+    expect(rebuilt[0]?.path).toBe('position[:],velocity[:]');
+    expect(rebuilt[1]?.id).toBe('s2');
+    expect(rebuilt[1]?.topic).toBe('/joint_states');
+  });
+
+  it('collapses to position-only path when velocity and effort are unchecked', () => {
+    const current = [
+      createPlotSeries({ id: 's1', topic: '/joint_cmd', path: 'position[:],velocity[:],effort[:]' }),
+    ];
+    const rebuilt = rebuildJointStateSeries(
+      current,
+      '/joint_cmd',
+      'sensor_msgs/msg/JointState',
+      ['position'],
+    );
+    expect(rebuilt).toHaveLength(1);
     expect(rebuilt[0]?.path).toBe('position[:]');
-    expect(rebuilt[1]?.path).toBe('velocity[:]');
-    expect(rebuilt.at(-1)?.id).toBe('s2');
-    expect(rebuilt.at(-1)?.topic).toBe('/joint_states');
   });
 });

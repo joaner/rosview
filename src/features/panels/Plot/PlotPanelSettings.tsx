@@ -1,10 +1,9 @@
-import React, { useCallback, useMemo } from 'react';
+import React, { useMemo } from 'react';
 import { Eye, EyeOff } from 'lucide-react';
 import { useIntl } from 'react-intl';
 import { useShallow } from 'zustand/react/shallow';
 import type { MessagePipelineState } from '@/core/pipeline/store';
 import { useMessagePipeline } from '@/core/pipeline/useMessagePipeline';
-import { isJointStateSchema } from '@/shared/ros/rosMessageTypes';
 import type { PanelSettingsContext } from '../framework/types';
 import {
   SettingsField,
@@ -16,7 +15,6 @@ import {
   TopicAutocomplete,
 } from '../framework/settings';
 import {
-  createPlotSeries,
   JOINT_STATE_FIELDS,
   MAX_PLOT_POINTS,
   MIN_PLOT_POINTS,
@@ -29,20 +27,15 @@ import {
 } from './defaults';
 import { exportPlotCsvFromConfig } from './exportCsv';
 import { filterPlottableTopics, isPlottableSchema } from './plottableSchemas';
-import { buildSeriesForTopic, mergeDetectedSeries, rebuildJointStateSeries } from './topicPaths';
+import {
+  addPlotSeriesToConfig,
+  applyJointStateFieldsToConfig,
+  toggleSeriesEnabled,
+  updateSeriesInConfig,
+} from './plotConfigActions';
+import { buildTopicByName } from './plotConfigSelectors';
 import { PlotLegendSettings } from './PlotLegendSettings';
-
-function updateSeries(
-  config: PlotConfig,
-  setConfig: PanelSettingsContext<PlotConfig>['setConfig'],
-  id: string,
-  patch: Partial<PlotSeriesConfig>,
-): void {
-  setConfig({
-    ...config,
-    series: config.series.map((series) => (series.id === id ? { ...series, ...patch } : series)),
-  });
-}
+import { usePlotTopicDetection } from './usePlotTopicDetection';
 
 export function PlotPanelSettings({
   config,
@@ -61,37 +54,16 @@ export function PlotPanelSettings({
   );
 
   const plottableTopics = useMemo(() => filterPlottableTopics(topics), [topics]);
+  const topicByName = useMemo(() => buildTopicByName(topics), [topics]);
 
-  const applyTopicDetection = useCallback(
-    async (seriesId: string, topic: string) => {
-      if (!topic) {
-        setConfig((prev) => ({
-          ...prev,
-          series: prev.series.map((series) =>
-            series.id === seriesId ? { ...series, topic: '', path: '' } : series,
-          ),
-        }));
-        return;
-      }
-      const isPrimary = seriesId === config.series[0]?.id;
-      const schemaName = topics.find((entry) => entry.name === topic)?.type;
-      const result = await buildSeriesForTopic({
-        topic,
-        schemaName,
-        player,
-        startTime,
-        endTime,
-        existingSeriesId: seriesId,
-        jointStateFields: isPrimary ? config.jointStateFields : ['position'],
-      });
-      setConfig((prev) => ({
-        ...prev,
-        ...(isPrimary && result.xAxisMode ? { xAxisMode: result.xAxisMode } : {}),
-        series: mergeDetectedSeries(prev.series, seriesId, result.series),
-      }));
-    },
-    [config.jointStateFields, config.series, endTime, player, setConfig, startTime, topics],
-  );
+  const { applyTopicDetection } = usePlotTopicDetection({
+    player,
+    config,
+    setConfig,
+    topicByName,
+    startTime,
+    endTime,
+  });
 
   const xAxisOptions = useMemo(
     () => [
@@ -197,15 +169,7 @@ export function PlotPanelSettings({
                       ? config.jointStateFields.filter((f) => f !== option.value)
                       : [...config.jointStateFields, option.value];
                     const fields = next.length > 0 ? next : (['position'] as JointStateField[]);
-                    setConfig((prev) => {
-                      const topic = prev.series[0]?.topic ?? '';
-                      const schema = topics.find((t) => t.name === topic)?.type;
-                      const updated: PlotConfig = { ...prev, jointStateFields: fields };
-                      if (topic && schema && isJointStateSchema(schema)) {
-                        updated.series = rebuildJointStateSeries(prev.series, topic, schema, fields);
-                      }
-                      return updated;
-                    });
+                    setConfig((prev) => applyJointStateFieldsToConfig(prev, topicByName, fields));
                   }}
                   className={`rounded border px-2 py-0.5 text-[10px] capitalize ${
                     active ? 'border-primary bg-primary/10 text-primary' : 'border-border'
@@ -268,7 +232,7 @@ export function PlotPanelSettings({
               </span>
               <button
                 type="button"
-                onClick={() => updateSeries(config, setConfig, series.id, { enabled: !series.enabled })}
+                onClick={() => setConfig((prev) => toggleSeriesEnabled(prev, series.id))}
                 className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded hover:bg-accent"
                 aria-label={formatMessage(
                   {
@@ -311,7 +275,7 @@ export function PlotPanelSettings({
             >
               <SettingsText
                 value={series.path}
-                onChange={(path) => updateSeries(config, setConfig, series.id, { path })}
+                onChange={(path) => setConfig((prev) => updateSeriesInConfig(prev, series.id, { path }))}
                 placeholder={formatMessage({ id: 'panels.plot.settings.field.yPath.placeholder' })}
               />
             </SettingsField>
@@ -319,7 +283,9 @@ export function PlotPanelSettings({
               <SettingsField label={formatMessage({ id: 'panels.plot.settings.field.xPath' })}>
                 <SettingsText
                   value={series.xAxisPath ?? ''}
-                  onChange={(xAxisPath) => updateSeries(config, setConfig, series.id, { xAxisPath })}
+                  onChange={(xAxisPath) =>
+                    setConfig((prev) => updateSeriesInConfig(prev, series.id, { xAxisPath }))
+                  }
                   placeholder={formatMessage({ id: 'panels.plot.settings.field.xPath.placeholder' })}
                 />
               </SettingsField>
@@ -327,7 +293,7 @@ export function PlotPanelSettings({
             <SettingsField label={formatMessage({ id: 'panels.plot.settings.field.label' })}>
               <SettingsText
                 value={series.label}
-                onChange={(label) => updateSeries(config, setConfig, series.id, { label })}
+                onChange={(label) => setConfig((prev) => updateSeriesInConfig(prev, series.id, { label }))}
                 placeholder={formatMessage({ id: 'panels.plot.settings.field.label.placeholder' })}
               />
             </SettingsField>
@@ -335,14 +301,18 @@ export function PlotPanelSettings({
               <SettingsSelect
                 value={series.timestampMode}
                 options={timestampOptions}
-                onChange={(timestampMode) => updateSeries(config, setConfig, series.id, { timestampMode })}
+                onChange={(timestampMode) =>
+                  setConfig((prev) => updateSeriesInConfig(prev, series.id, { timestampMode }))
+                }
               />
             </SettingsField>
             <SettingsField label={formatMessage({ id: 'panels.plot.settings.field.lineStyle' })}>
               <SettingsSelect<PlotLineStyle>
                 value={series.lineStyle}
                 options={lineStyleOptions}
-                onChange={(lineStyle) => updateSeries(config, setConfig, series.id, { lineStyle })}
+                onChange={(lineStyle) =>
+                  setConfig((prev) => updateSeriesInConfig(prev, series.id, { lineStyle }))
+                }
               />
             </SettingsField>
             <SettingsField label={formatMessage({ id: 'panels.plot.settings.field.lineSize' })}>
@@ -351,24 +321,16 @@ export function PlotPanelSettings({
                 min={0.5}
                 max={8}
                 step={0.5}
-                onChange={(lineSize) => updateSeries(config, setConfig, series.id, { lineSize })}
+                onChange={(lineSize) =>
+                  setConfig((prev) => updateSeriesInConfig(prev, series.id, { lineSize }))
+                }
               />
             </SettingsField>
           </div>
         ))}
         <button
           type="button"
-          onClick={() =>
-            setConfig({
-              ...config,
-              series: [
-                ...config.series,
-                createPlotSeries({
-                  id: `series-${Date.now().toString(36)}`,
-                }),
-              ],
-            })
-          }
+          onClick={() => setConfig((prev) => addPlotSeriesToConfig(prev))}
           className="w-full rounded border border-border bg-background px-2 py-1 text-xs hover:bg-accent"
         >
           {formatMessage({ id: 'panels.plot.settings.addSeries' })}

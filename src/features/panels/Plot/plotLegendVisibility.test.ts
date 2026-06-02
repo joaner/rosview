@@ -23,7 +23,7 @@ describe('plotLegendVisibility', () => {
     expect(plotLegendSelectionState(entries, ['a', 'b', 'c'])).toBe('none');
   });
 
-  it('supports select all and select none', () => {
+  it('supports toggling all entries from header checkbox', () => {
     expect(setAllPlotLegendVisible(['a', 'b'], true)).toEqual([]);
     expect(setAllPlotLegendVisible(['a', 'b'], false)).toEqual(['a', 'b']);
   });

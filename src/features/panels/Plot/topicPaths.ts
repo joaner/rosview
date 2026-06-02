@@ -1,90 +1,12 @@
-import type { Player } from '@/core/types/player';
-import type { Time } from '@/core/types/ros';
-import { fromNano, toNano } from '@/shared/utils/time';
-import { detectPlotPaths, getPreferredXAxisMode } from './autoDetect';
-import { isPlottableSchema } from './plottableSchemas';
-import type { JointStateField, PlotSeriesConfig, PlotXAxisMode } from './defaults';
+import { detectPlotPaths } from './autoDetect';
+import type { JointStateField, PlotSeriesConfig } from './defaults';
 import { createPlotSeries, paletteColor } from './defaults';
+import {
+  buildJointStateCombinedPath,
+  stripAutoJointStateSeriesSlots,
+} from './jointStatePaths';
 
-function sampleEndTime(start: Time, end: Time): Time {
-  const startNs = toNano(start);
-  const endNs = toNano(end);
-  const oneSec = 1_000_000_000n;
-  const sampleEnd = startNs + oneSec < endNs ? startNs + oneSec : endNs;
-  return fromNano(sampleEnd);
-}
-
-export interface BuildSeriesResult {
-  series: PlotSeriesConfig[];
-  xAxisMode?: PlotXAxisMode;
-}
-
-export async function buildSeriesForTopic(args: {
-  topic: string;
-  schemaName?: string;
-  player: Player;
-  startTime?: Time;
-  endTime?: Time;
-  existingSeriesId?: string;
-  jointStateFields?: JointStateField[];
-}): Promise<BuildSeriesResult> {
-  const { topic, schemaName, player, startTime, endTime, existingSeriesId, jointStateFields } = args;
-
-  if (!topic || !schemaName || !isPlottableSchema(schemaName)) {
-    return {
-      series: [
-        createPlotSeries({
-          id: existingSeriesId,
-          topic: topic || '',
-          path: '',
-        }),
-      ],
-    };
-  }
-
-  let sample: unknown;
-  if (player.getMessagesInTimeRange && startTime && endTime) {
-    try {
-      const messages = await player.getMessagesInTimeRange({
-        start: startTime,
-        end: sampleEndTime(startTime, endTime),
-        topics: [topic],
-      });
-      sample = messages[0]?.message;
-    } catch {
-      sample = undefined;
-    }
-  }
-
-  const detected = detectPlotPaths({ schemaName, sample, jointStateFields });
-  const entry = detected[0];
-  if (!entry) {
-    return {
-      series: [
-        createPlotSeries({
-          id: existingSeriesId,
-          topic,
-          path: '',
-        }),
-      ],
-    };
-  }
-
-  const preferredXAxis = getPreferredXAxisMode(schemaName);
-  return {
-    series: [
-      createPlotSeries({
-        id: existingSeriesId,
-        topic,
-        path: entry.path,
-        xAxisPath: entry.xAxisPath ?? '',
-        label: entry.label ?? '',
-        color: paletteColor(0),
-      }),
-    ],
-    xAxisMode: preferredXAxis,
-  };
-}
+export { buildSeriesForTopic, type BuildSeriesResult } from './plotTopicService';
 
 export function mergeDetectedSeries(
   current: PlotSeriesConfig[],
@@ -127,23 +49,21 @@ export function rebuildJointStateSeries(
   const detected = detectPlotPaths({ schemaName, jointStateFields });
   if (detected.length === 0) return current;
 
+  const combinedPath = buildJointStateCombinedPath(jointStateFields);
   const primary = current[0];
-  const userSeries = current.slice(1);
+  const userSeries = stripAutoJointStateSeriesSlots(current.slice(1), topic);
 
-  const rebuilt = detected.map((entry, index) => {
-    const existing = index === 0 ? primary : undefined;
-    return createPlotSeries({
-      id: existing?.id ?? `series-${Date.now().toString(36)}-${index}`,
-      topic,
-      path: entry.path,
-      label: entry.label ?? '',
-      color: existing?.color ?? paletteColor(index),
-      enabled: existing?.enabled ?? true,
-      timestampMode: existing?.timestampMode ?? 'headerStamp',
-      lineStyle: existing?.lineStyle ?? 'solid',
-      lineSize: existing?.lineSize ?? 1.5,
-    });
+  const updated = createPlotSeries({
+    id: primary?.id ?? `series-${Date.now().toString(36)}-0`,
+    topic,
+    path: combinedPath,
+    label: primary?.label ?? detected.map((entry) => entry.label).filter(Boolean).join(', '),
+    color: primary?.color ?? paletteColor(0),
+    enabled: primary?.enabled ?? true,
+    timestampMode: primary?.timestampMode ?? 'headerStamp',
+    lineStyle: primary?.lineStyle ?? 'solid',
+    lineSize: primary?.lineSize ?? 1.5,
   });
 
-  return [...rebuilt, ...userSeries];
+  return [updated, ...userSeries];
 }

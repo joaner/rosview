@@ -1,58 +1,40 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef } from 'react';
 import { useIntl } from 'react-intl';
 import { useShallow } from 'zustand/react/shallow';
-import uPlot from 'uplot';
 import 'uplot/dist/uPlot.min.css';
-import { timeToSec } from '@/core/analysis/timeSeries';
 import type { MessagePipelineState } from '@/core/pipeline/store';
 import { useMessagePipeline } from '@/core/pipeline/useMessagePipeline';
 import type { Player } from '@/core/types/player';
-import type { TopicInfo } from '@/core/types/ros';
-import { isJointStateSchema } from '@/shared/ros/rosMessageTypes';
-import { scheduleFrame } from '@/shared/utils/rafScheduler';
 import { TopicQuickPicker } from '../framework';
-import { buildPlotDataset, type PlotDataset } from './datasets';
 import type { JointStateField, PlotConfig } from './defaults';
 import { JOINT_STATE_FIELDS } from './defaults';
-import { filterPlottableTopics, isPlottableTopic } from './plottableSchemas';
+import { filterPlottableTopics } from './plottableSchemas';
 import { pickDefaultPlotTopic } from './pickDefaultPlotTopic';
+import { secToTime } from './plotChart';
+import { applyJointStateFieldsToConfig, pruneHiddenLegendKeysForDataset } from './plotConfigActions';
 import {
-  createPlotUplotOptions,
-  mountPlotChart,
-  readPlotChartColors,
-  secToTime,
-} from './plotChart';
-import { readPlotRange, type PlotRangeReadProgress } from './rangeReader';
-import {
-  buildSeriesForTopic,
-  mergeDetectedSeries,
-  rebuildJointStateSeries,
-} from './topicPaths';
-import { hiddenSeriesIndices, pruneHiddenLegendKeys } from './plotLegendVisibility';
+  buildTopicByName,
+  hasEnabledPlotPaths,
+  isPrimaryJointState,
+  selectActivePlotTopics,
+  selectPrimarySeries,
+} from './plotConfigSelectors';
+import { hiddenSeriesIndices } from './plotLegendVisibility';
 import {
   clearPlotLegendEntries,
   setPlotLegendEntries,
 } from './plotPanelRuntimeStore';
 import { formatPlotDatasetWarning } from './plotWarnings';
+import { usePlotChart } from './usePlotChart';
+import { usePlotPanelData } from './usePlotPanelData';
+import { usePlotTopicDetection } from './usePlotTopicDetection';
+import { timeToSec } from '@/core/analysis/timeSeries';
 
 interface PlotPanelProps {
   player: Player;
   panelId: string;
   config: PlotConfig;
   setConfig: (next: PlotConfig | ((prev: PlotConfig) => PlotConfig)) => void;
-}
-
-const EMPTY_DATASET: PlotDataset = {
-  xLabel: 'time',
-  series: [],
-  data: [[]] as uPlot.AlignedData,
-  pointCount: 0,
-  sampleRatio: 1,
-  warnings: [],
-};
-
-function isAbortError(error: unknown): boolean {
-  return error instanceof DOMException && error.name === 'AbortError';
 }
 
 function JointStateFieldChips({
@@ -91,36 +73,7 @@ function JointStateFieldChips({
 export const PlotPanel: React.FC<PlotPanelProps> = ({ player, panelId, config, setConfig }) => {
   const { formatMessage } = useIntl();
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const uplotRef = useRef<uPlot | null>(null);
   const autoTopicAppliedRef = useRef(false);
-  const currentTimeSecRef = useRef<number | undefined>(
-    (() => {
-      const time = player.getCurrentTime();
-      return time ? timeToSec(time) : undefined;
-    })(),
-  );
-  const cancelPlayheadFrameRef = useRef<(() => void) | null>(null);
-  const followingViewWidthRef = useRef(config.followingViewWidthSec);
-  const xAxisModeRef = useRef(config.xAxisMode);
-
-  const [dataset, setDataset] = useState<PlotDataset>(EMPTY_DATASET);
-  const [loading, setLoading] = useState(false);
-  const [progress, setProgress] = useState<PlotRangeReadProgress | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [detectingTopic, setDetectingTopic] = useState(false);
-
-  const hiddenSeries = useMemo(
-    () => hiddenSeriesIndices(dataset.series, config.hiddenLegendKeys),
-    [config.hiddenLegendKeys, dataset.series],
-  );
-
-  followingViewWidthRef.current = config.followingViewWidthSec;
-  xAxisModeRef.current = config.xAxisMode;
-
-  const hasPlotPaths = useMemo(
-    () => config.series.some((series) => series.enabled && series.topic && series.path.trim().length > 0),
-    [config.series],
-  );
 
   const { startTime, endTime, randomAccessByTopic, topics } = useMessagePipeline(
     useShallow((state: MessagePipelineState) => ({
@@ -132,37 +85,54 @@ export const PlotPanel: React.FC<PlotPanelProps> = ({ player, panelId, config, s
   );
 
   const plottableTopics = useMemo(() => filterPlottableTopics(topics), [topics]);
-
-  const topicByName = useMemo(() => {
-    const map = new Map<string, TopicInfo>();
-    for (const topic of topics) map.set(topic.name, topic);
-    return map;
-  }, [topics]);
-
+  const topicByName = useMemo(() => buildTopicByName(topics), [topics]);
   const activeTopics = useMemo(
-    () =>
-      Array.from(
-        new Set(
-          config.series
-            .filter((series) => series.enabled && series.topic)
-            .map((series) => series.topic)
-            .filter((topic) => {
-              const info = topicByName.get(topic);
-              return info ? isPlottableTopic(info) : false;
-            }),
-        ),
-      ).sort(),
-    [config.series, topicByName],
+    () => selectActivePlotTopics(config, topicByName),
+    [config, topicByName],
   );
-
-  const primary = config.series[0];
-  const primarySchema = primary?.topic ? topicByName.get(primary.topic)?.type : undefined;
-  const showJointStateFields = primarySchema ? isJointStateSchema(primarySchema) : false;
+  const hasPlotPaths = useMemo(() => hasEnabledPlotPaths(config), [config.series]);
+  const primary = selectPrimarySeries(config);
+  const showJointStateFields = isPrimaryJointState(config, topicByName);
 
   const xRange = useMemo(() => {
     if (!startTime || !endTime || config.xAxisMode !== 'timestamp') return undefined;
     return { min: timeToSec(startTime), max: timeToSec(endTime) };
   }, [config.xAxisMode, endTime, startTime]);
+
+  const { detectingTopic, applyTopicDetection } = usePlotTopicDetection({
+    player,
+    config,
+    setConfig,
+    topicByName,
+    startTime,
+    endTime,
+  });
+
+  const { dataset, loading, progress, error } = usePlotPanelData({
+    player,
+    config,
+    activeTopics,
+    hasPlotPaths,
+    startTime,
+    endTime,
+    randomAccessByTopic,
+  });
+
+  const hiddenSeries = useMemo(
+    () => hiddenSeriesIndices(dataset.series, config.hiddenLegendKeys),
+    [config.hiddenLegendKeys, dataset.series],
+  );
+
+  const uplotRef = usePlotChart({
+    containerRef,
+    player,
+    panelId,
+    config,
+    dataset,
+    hiddenSeries,
+    xRange,
+    logStart: startTime,
+  });
 
   useEffect(() => {
     const subscriptions = activeTopics.map((topic) => ({ topic, subscriberId: panelId }));
@@ -173,37 +143,6 @@ export const PlotPanel: React.FC<PlotPanelProps> = ({ player, panelId, config, s
   }, [player, panelId, activeTopics]);
 
   useEffect(() => {
-    const unsub = player.subscribeCurrentTime((time) => {
-      currentTimeSecRef.current = timeToSec(time);
-      if (cancelPlayheadFrameRef.current) return;
-
-      cancelPlayheadFrameRef.current = scheduleFrame(() => {
-        cancelPlayheadFrameRef.current = null;
-        const chart = uplotRef.current;
-        if (!chart) return;
-
-        if (xAxisModeRef.current === 'timestamp' && followingViewWidthRef.current > 0) {
-          const end = currentTimeSecRef.current;
-          if (end != null && Number.isFinite(end)) {
-            chart.setScale('x', {
-              min: end - followingViewWidthRef.current,
-              max: end,
-            });
-          }
-        }
-
-        chart.redraw(false);
-      });
-    });
-
-    return () => {
-      unsub();
-      cancelPlayheadFrameRef.current?.();
-      cancelPlayheadFrameRef.current = null;
-    };
-  }, [player]);
-
-  useEffect(() => {
     const entries = dataset.series.map((series) => ({
       key: series.key,
       label: series.label,
@@ -211,51 +150,11 @@ export const PlotPanel: React.FC<PlotPanelProps> = ({ player, panelId, config, s
     }));
     setPlotLegendEntries(panelId, entries);
 
-    setConfig((prev) => {
-      const keys = entries.map((entry) => entry.key);
-      const hiddenLegendKeys = pruneHiddenLegendKeys(prev.hiddenLegendKeys, keys);
-      if (hiddenLegendKeys.length === prev.hiddenLegendKeys.length) return prev;
-      return { ...prev, hiddenLegendKeys };
-    });
+    const keys = entries.map((entry) => entry.key);
+    setConfig((prev) => pruneHiddenLegendKeysForDataset(prev, keys));
   }, [dataset.series, panelId, setConfig]);
 
   useEffect(() => () => clearPlotLegendEntries(panelId), [panelId]);
-
-  const applyTopicDetection = useCallback(
-    async (seriesId: string, topic: string) => {
-      if (!topic) {
-        setConfig((prev) => ({
-          ...prev,
-          series: prev.series.map((series) =>
-            series.id === seriesId ? { ...series, topic: '', path: '' } : series,
-          ),
-        }));
-        return;
-      }
-      setDetectingTopic(true);
-      try {
-        const isPrimary = seriesId === config.series[0]?.id;
-        const schemaName = topicByName.get(topic)?.type;
-        const result = await buildSeriesForTopic({
-          topic,
-          schemaName,
-          player,
-          startTime,
-          endTime,
-          existingSeriesId: seriesId,
-          jointStateFields: isPrimary ? config.jointStateFields : ['position'],
-        });
-        setConfig((prev) => ({
-          ...prev,
-          ...(isPrimary && result.xAxisMode ? { xAxisMode: result.xAxisMode } : {}),
-          series: mergeDetectedSeries(prev.series, seriesId, result.series),
-        }));
-      } finally {
-        setDetectingTopic(false);
-      }
-    },
-    [config.jointStateFields, config.series, endTime, player, setConfig, startTime, topicByName],
-  );
 
   useEffect(() => {
     if (autoTopicAppliedRef.current || !startTime || !endTime) return;
@@ -269,137 +168,13 @@ export const PlotPanel: React.FC<PlotPanelProps> = ({ player, panelId, config, s
     void applyTopicDetection(config.series[0].id, defaultTopic);
   }, [applyTopicDetection, config.series, endTime, plottableTopics, primary?.topic, startTime]);
 
-  useEffect(() => {
-    if (!startTime || !endTime || activeTopics.length === 0 || !hasPlotPaths) {
-      setDataset(EMPTY_DATASET);
-      setLoading(false);
-      setProgress(null);
-      setError(null);
-      return;
-    }
-
-    const controller = new AbortController();
-    setLoading(true);
-    setProgress(null);
-    setError(null);
-
-    const isIndexed = randomAccessByTopic !== false;
-    const maxMessages = isIndexed ? undefined : config.nonIndexedMaxMessages;
-    const extraWarnings = isIndexed
-      ? []
-      : [{ kind: 'nonIndexedSource' as const }];
-
-    void readPlotRange({
-      player,
-      start: startTime,
-      end: endTime,
-      topics: activeTopics,
-      signal: controller.signal,
-      onProgress: setProgress,
-      maxMessages,
-    })
-      .then((messages) => {
-        if (controller.signal.aborted) return;
-        setDataset(
-          buildPlotDataset(messages, config, {
-            forceDownsample: !isIndexed,
-            extraWarnings,
-            logStart: startTime,
-            logEnd: endTime,
-          }),
-        );
-      })
-      .catch((err: unknown) => {
-        if (!isAbortError(err)) {
-          setDataset(EMPTY_DATASET);
-          setError(err instanceof Error ? err.message : String(err));
-        }
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) {
-          setLoading(false);
-        }
-      });
-
-    return () => controller.abort();
-  }, [activeTopics, config, endTime, hasPlotPaths, player, randomAccessByTopic, startTime]);
-
-  const rebuildChart = useCallback(() => {
-    const container = containerRef.current;
-    if (!container) return;
-
-    uplotRef.current?.destroy();
-    uplotRef.current = null;
-
-    const colors = readPlotChartColors();
-    const options = createPlotUplotOptions(dataset, hiddenSeries, {
-      panelId,
-      xAxisMode: config.xAxisMode,
-      xRange,
-      logStart: startTime,
-      getCurrentTimeSec: () => currentTimeSecRef.current,
-      colors,
-    });
-
-    uplotRef.current = mountPlotChart(container, dataset, options, xRange);
-
-    const observer = new ResizeObserver(() => {
-      const chart = uplotRef.current;
-      if (!container || !chart) return;
-      chart.setSize({
-        width: container.offsetWidth || 400,
-        height: Math.max(container.offsetHeight || 200, 100),
-      });
-    });
-    observer.observe(container);
-    return () => observer.disconnect();
-  }, [config.xAxisMode, dataset, hiddenSeries, panelId, startTime, xRange]);
-
-  useEffect(() => {
-    const cleanup = rebuildChart();
-    return () => {
-      cleanup?.();
-      uplotRef.current?.destroy();
-      uplotRef.current = null;
-    };
-  }, [rebuildChart]);
-
-  useEffect(() => {
-    const chart = uplotRef.current;
-    if (!chart || config.xAxisMode !== 'timestamp') return;
-    if (config.followingViewWidthSec > 0) {
-      const end = currentTimeSecRef.current;
-      if (end != null && Number.isFinite(end)) {
-        chart.setScale('x', { min: end - config.followingViewWidthSec, max: end });
-      }
-    } else if (xRange) {
-      chart.setScale('x', xRange);
-    }
-  }, [config.followingViewWidthSec, config.xAxisMode, xRange]);
-
-  useEffect(() => {
-    const chart = uplotRef.current;
-    if (!chart) return;
-    for (let index = 0; index < dataset.series.length; index++) {
-      chart.setSeries(index + 1, { show: !hiddenSeries.has(index) });
-    }
-  }, [dataset.series.length, hiddenSeries]);
-
   const updatePrimaryTopic = (topic: string) => {
     const primaryId = config.series[0]?.id;
     if (primaryId) void applyTopicDetection(primaryId, topic);
   };
 
   const handleJointStateFieldsChange = (fields: JointStateField[]) => {
-    setConfig((prev) => {
-      const topic = prev.series[0]?.topic ?? '';
-      const schema = topic ? topicByName.get(topic)?.type : undefined;
-      const next: PlotConfig = { ...prev, jointStateFields: fields };
-      if (topic && schema && isJointStateSchema(schema)) {
-        next.series = rebuildJointStateSeries(prev.series, topic, schema, fields);
-      }
-      return next;
-    });
+    setConfig((prev) => applyJointStateFieldsToConfig(prev, topicByName, fields));
   };
 
   const jointFieldLabels = useMemo(

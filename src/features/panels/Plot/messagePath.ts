@@ -43,6 +43,18 @@ const mathFunctions: Record<string, (value: number) => number> = {
   tan: Math.tan,
 };
 
+/** Split comma- or whitespace-separated Y paths (each segment may include `@` modifiers). */
+export function splitPlotPathList(path: string): string[] {
+  const trimmed = path.trim();
+  if (!trimmed) return [];
+  if (!/[,\s]/.test(trimmed)) return [trimmed];
+  return trimmed
+    .split(',')
+    .flatMap((segment) => segment.trim().split(/\s+/))
+    .map((part) => part.trim())
+    .filter(Boolean);
+}
+
 export function parsePlotPath(path: string): ParsedPlotPath {
   const trimmed = path.trim();
   if (!trimmed) return { sourcePath: '', modifiers: [] };
@@ -183,10 +195,10 @@ function applyModifiers(value: number, modifiers: string[]): number | undefined 
 }
 
 export function hasDerivativeModifier(path: string): boolean {
-  return parsePlotPath(path).modifiers.includes('derivative');
+  return splitPlotPathList(path).some((subPath) => parsePlotPath(subPath).modifiers.includes('derivative'));
 }
 
-export function extractPlotPathValues(message: unknown, path: string): ExtractedPlotValue[] {
+function extractSinglePlotPathValues(message: unknown, path: string): ExtractedPlotValue[] {
   const parsed = parsePlotPath(path);
   if (!parsed.sourcePath) return [];
   let items: Array<{ key: string; label: string; value: unknown }> = [{ key: '', label: '', value: message }];
@@ -214,4 +226,23 @@ export function extractPlotPathValues(message: unknown, path: string): Extracted
     const value = applyModifiers(numeric, parsed.modifiers);
     return value == null ? [] : [{ key: item.key, label: item.label || item.key, value }];
   });
+}
+
+export function extractPlotPathValues(message: unknown, path: string): ExtractedPlotValue[] {
+  const paths = splitPlotPathList(path);
+  if (paths.length <= 1) {
+    return extractSinglePlotPathValues(message, paths[0] ?? path);
+  }
+
+  const out: ExtractedPlotValue[] = [];
+  const seen = new Set<string>();
+  for (const subPath of paths) {
+    for (const item of extractSinglePlotPathValues(message, subPath)) {
+      const dedupeKey = `${subPath}|${item.key}`;
+      if (seen.has(dedupeKey)) continue;
+      seen.add(dedupeKey);
+      out.push(item);
+    }
+  }
+  return out;
 }
