@@ -51,8 +51,8 @@
   "welcome.fileTypes": "mcap · bag · db3 · hdf5 · bvh",
   "welcome.directoryHint": "导入文件夹内全部匹配文件",
   "welcome.loadingTitle": "正在打开…",
-  "welcome.loadingHint": "正在解析索引，大文件或远程链接可能稍慢。",
-  "welcome.changeUrl": "更换链接",
+  "welcome.loadingPhase.preparing": "准备中…",
+  "welcome.cancelLoading": "取消",
   "welcome.manualOpenFileHint": "请手动打开 {name} 文件。",
   "welcome.manualOpenFolderHint": "请手动打开 {name} 文件夹。"
 }

@@ -42,6 +42,7 @@ interface AppShellProps {
   onSubmitRemoteUrl: (url: string) => void | Promise<void>;
   remoteSubmitLoading?: boolean;
   onSelectSample: (sample: SampleDataset) => void | Promise<void>;
+  onCancelLoading?: () => void;
   historyItems: DatasetHistoryListItem[];
   onReplayHistory: (id: string) => void | Promise<void>;
   onDropRosRecordingFiles: (files: File[], items?: DataTransferItemList) => void | Promise<void>;
@@ -91,6 +92,7 @@ export const AppShell: React.FC<AppShellProps> = ({
   onSubmitRemoteUrl,
   remoteSubmitLoading,
   onSelectSample,
+  onCancelLoading,
   historyItems,
   onReplayHistory,
   onDropRosRecordingFiles,
@@ -175,7 +177,7 @@ export const AppShell: React.FC<AppShellProps> = ({
         onSubmitRemoteUrl={onSubmitRemoteUrl}
         remoteSubmitLoading={remoteSubmitLoading}
         onSelectSample={onSelectSample}
-        onRequestChangeRemoteUrl={onOpenRemotePrompt}
+        onCancelLoading={onCancelLoading}
         historyItems={historyItems}
         onReplayHistory={onReplayHistory}
         onDropRosRecordingFiles={onDropRosRecordingFiles}

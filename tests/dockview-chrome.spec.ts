@@ -1,12 +1,6 @@
 import { test, expect } from '@playwright/test';
-import { existsSync } from 'node:fs';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const defaultFixture = path.join(__dirname, '../public/examples/test_5s.mcap');
-const fixturePath = process.env.ROSVIEW_TEST_MCAP ?? defaultFixture;
-const hasMcapFixture = existsSync(fixturePath);
+import { MCAP_BASIC_URL, requireExamplesDir } from './fixturePaths';
+import { openFixtureByUrl } from './helpers/rosview';
 
 async function openFirstTabChromeMenuIfNeeded(page: import('@playwright/test').Page): Promise<void> {
   const directAdd = page.getByTestId('panel-tab-add-button').first();
@@ -21,25 +15,19 @@ async function openFirstTabChromeMenuIfNeeded(page: import('@playwright/test').P
 test.describe('Dockview chrome', () => {
   test.describe.configure({ timeout: 90_000 });
 
+  test.beforeAll(() => {
+    requireExamplesDir();
+  });
+
   test('shows dockview, group add split, and tab close control', async ({ page }) => {
-    test.skip(
-      !hasMcapFixture,
-      `Missing MCAP fixture: copy to public/examples/test_5s.mcap or set ROSVIEW_TEST_MCAP (${fixturePath})`,
-    );
-    await page.goto('/?url=/examples/test_5s.mcap', { waitUntil: 'domcontentloaded' });
-    await expect(page.getByTestId('rosview-dockview')).toBeVisible({ timeout: 60_000 });
+    await openFixtureByUrl(page, MCAP_BASIC_URL);
     await openFirstTabChromeMenuIfNeeded(page);
     await expect(page.getByTestId('panel-tab-add-button').first()).toBeVisible({ timeout: 30_000 });
     await expect(page.getByTestId('panel-tab-close-button').first()).toBeVisible();
   });
 
   test('primary add creates a new tab in the group', async ({ page }) => {
-    test.skip(
-      !hasMcapFixture,
-      `Missing MCAP fixture: copy to public/examples/test_5s.mcap or set ROSVIEW_TEST_MCAP (${fixturePath})`,
-    );
-    await page.goto('/?url=/examples/test_5s.mcap', { waitUntil: 'domcontentloaded' });
-    await expect(page.getByTestId('rosview-dockview')).toBeVisible({ timeout: 60_000 });
+    await openFixtureByUrl(page, MCAP_BASIC_URL);
     await openFirstTabChromeMenuIfNeeded(page);
     await expect(page.getByTestId('panel-tab-add-button').first()).toBeVisible({ timeout: 30_000 });
 
@@ -56,12 +44,7 @@ test.describe('Dockview chrome', () => {
   });
 
   test('tab context menu offers Close', async ({ page }) => {
-    test.skip(
-      !hasMcapFixture,
-      `Missing MCAP fixture: copy to public/examples/test_5s.mcap or set ROSVIEW_TEST_MCAP (${fixturePath})`,
-    );
-    await page.goto('/?url=/examples/test_5s.mcap', { waitUntil: 'domcontentloaded' });
-    await expect(page.getByTestId('rosview-dockview')).toBeVisible({ timeout: 60_000 });
+    await openFixtureByUrl(page, MCAP_BASIC_URL);
     const firstTab = page.locator('.dv-tab').first();
     await firstTab.click({ button: 'right' });
     await expect(page.getByRole('menuitem', { name: 'Close', exact: true })).toBeVisible();
@@ -69,24 +52,14 @@ test.describe('Dockview chrome', () => {
   });
 
   test('tab labels show panel type (not topic basename)', async ({ page }) => {
-    test.skip(
-      !hasMcapFixture,
-      `Missing MCAP fixture: copy to public/examples/test_5s.mcap or set ROSVIEW_TEST_MCAP (${fixturePath})`,
-    );
-    await page.goto('/?url=/examples/test_5s.mcap', { waitUntil: 'domcontentloaded' });
-    await expect(page.getByTestId('rosview-dockview')).toBeVisible({ timeout: 60_000 });
+    await openFixtureByUrl(page, MCAP_BASIC_URL);
     await expect(page.locator('.dv-tab').filter({ hasText: /^Image$/ }).first()).toBeVisible({
       timeout: 30_000,
     });
   });
 
   test('dockview theme class follows dark mode', async ({ page }) => {
-    test.skip(
-      !hasMcapFixture,
-      `Missing MCAP fixture: copy to public/examples/test_5s.mcap or set ROSVIEW_TEST_MCAP (${fixturePath})`,
-    );
-    await page.goto('/?url=/examples/test_5s.mcap&theme=dark', { waitUntil: 'domcontentloaded' });
-    await expect(page.getByTestId('rosview-dockview')).toBeVisible({ timeout: 60_000 });
+    await openFixtureByUrl(page, MCAP_BASIC_URL, { query: { theme: 'dark' } });
     const dock = page.getByTestId('rosview-dockview');
     await expect(dock).toHaveAttribute('data-dockview-chrome-theme', 'dark');
     await expect(page.locator('.ros-dockview-theme-dark').first()).toBeVisible();

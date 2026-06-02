@@ -6,6 +6,7 @@ import type { MessagePipelineState } from '@/core/pipeline/store';
 import type { Player } from '@/core/types/player';
 import type { TopicInfo } from '@/core/types/ros';
 import { ScrollArea } from '@/shared/ui/scroll-area';
+import { Skeleton } from '@/shared/ui/skeleton';
 import { AlertTriangle, Database, Layers, Search, Settings2 } from 'lucide-react';
 import { useSidebarStore } from '@/shared/hooks/useSidebarStore';
 import { PanelSettingsTab } from './PanelSettingsTab';
@@ -21,6 +22,20 @@ import { cn } from '@/shared/lib/utils';
 
 const SIDEBAR_TAB_TRIGGER_CLASS =
   'flex flex-1 items-center justify-center gap-1 border-b-2 border-transparent px-2 py-2 text-xs font-medium transition-colors hover:bg-accent/70 data-[state=active]:border-primary data-[state=active]:bg-background data-[state=active]:text-primary';
+
+const TOPIC_LIST_SKELETON_ROWS = 8;
+
+function TopicRowSkeleton(): React.ReactElement {
+  return (
+    <div className="flex w-full items-start gap-3 border-b border-border/50 p-2">
+      <div className="min-w-0 flex-1 flex flex-col gap-1">
+        <Skeleton className="h-4 w-[75%]" />
+        <Skeleton className="h-3 w-[55%]" />
+      </div>
+      <Skeleton className="h-4 w-10 shrink-0" />
+    </div>
+  );
+}
 
 interface SidebarProps {
   player: Player;
@@ -50,6 +65,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
 }) => {
   const { formatMessage } = useIntl();
   const topics = useMessagePipeline((state: MessagePipelineState) => state.sortedTopics);
+  const playerPresence = useMessagePipeline((state: MessagePipelineState) => state.playerState.presence);
+  const topicsLoading = playerPresence === 'preinit' || playerPresence === 'initializing';
   const activeTab = useSidebarStore((s) => s.tab);
   const setActiveTab = useSidebarStore((s) => s.setTab);
   const initialSidebarTabAppliedRef = useRef(false);
@@ -189,7 +206,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
           <ScrollArea className="flex-1 min-h-0">
             <div className="border-b border-border/50">
-              {filteredTopics.length > 0 ? (
+              {topicsLoading ? (
+                Array.from({ length: TOPIC_LIST_SKELETON_ROWS }, (_, index) => (
+                  <TopicRowSkeleton key={index} />
+                ))
+              ) : filteredTopics.length > 0 ? (
                 filteredTopics.map((topic: TopicInfo) => (
                   <TopicRow
                     key={topic.name}

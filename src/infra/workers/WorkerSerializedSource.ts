@@ -17,7 +17,16 @@ import { createWorkerTransport } from "./transports/createWorkerTransport";
 import { SabTransport } from "./transports/SabTransport";
 import type { WorkerTransport } from "./transports/BaseWorkerTransport";
 
-const INITIALIZE_TIMEOUT_MS = 30_000;
+export class WorkerSourceCancelledError extends Error {
+  constructor() {
+    super("Worker initialize cancelled");
+    this.name = "WorkerSourceCancelledError";
+  }
+}
+
+export function isWorkerSourceCancelledError(error: unknown): error is WorkerSourceCancelledError {
+  return error instanceof WorkerSourceCancelledError;
+}
 
 type ResolveHighFrequencyLaneOptions = {
   preferSharedView?: boolean;
@@ -39,6 +48,7 @@ export class WorkerSerializedSource {
   private _stalePayloadRefs = 0;
   private _ringReader?: SharedPayloadRing;
   private _workerFailure?: Error;
+  private _pendingInitializeReject?: (error: Error) => void;
 
   constructor(worker: Worker) {
     this._worker = worker;
@@ -78,7 +88,7 @@ export class WorkerSerializedSource {
         this._transportConfigured = true;
       }
       const result = await this._raceWorkerFailure(
-        this._withTimeout(this._remote.initialize(sanitizedArgs), INITIALIZE_TIMEOUT_MS, "Worker initialize timed out"),
+        this._wrapAbortableInitialize(this._remote.initialize(sanitizedArgs)),
       );
       console.log("WorkerSerializedSource: initialize result received");
       return result;
@@ -120,20 +130,32 @@ export class WorkerSerializedSource {
     });
   }
 
-  private async _withTimeout<T>(operation: Promise<T>, timeoutMs: number, message: string): Promise<T> {
-    let timeoutId: ReturnType<typeof globalThis.setTimeout> | undefined;
-    try {
-      return await Promise.race([
-        operation,
-        new Promise<T>((_, reject) => {
-          timeoutId = globalThis.setTimeout(() => reject(new Error(message)), timeoutMs);
-        }),
-      ]);
-    } finally {
-      if (timeoutId !== undefined) {
-        globalThis.clearTimeout(timeoutId);
-      }
-    }
+  private _wrapAbortableInitialize<T>(operation: Promise<T>): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+      this._pendingInitializeReject = (error) => {
+        reject(error);
+      };
+      operation.then(
+        (value) => {
+          this._clearPendingInitialize();
+          resolve(value);
+        },
+        (error: unknown) => {
+          this._clearPendingInitialize();
+          reject(errorFromUnknown(error));
+        },
+      );
+    });
+  }
+
+  private _clearPendingInitialize(): void {
+    this._pendingInitializeReject = undefined;
+  }
+
+  private _abortPendingInitialize(error: Error): void {
+    const reject = this._pendingInitializeReject;
+    this._clearPendingInitialize();
+    reject?.(error);
   }
 
   async getMessageCursor(args: MessageIteratorArgs): Promise<IMessageCursor<unknown>> {
@@ -242,7 +264,8 @@ export class WorkerSerializedSource {
     return this._fallbackReason;
   }
 
-  terminate() {
+  terminate(): void {
+    this._abortPendingInitialize(new WorkerSourceCancelledError());
     this._worker.terminate();
   }
 

@@ -276,8 +276,8 @@
 | 库 | 说明 |
 |----|------|
 | fflate | 通用压缩/解压（gzip/deflate/zlib） |
-| lz4-wasm 或 lz4js | LZ4 解压（ROS1 .bag chunk 压缩） |
-| fzstd | Zstandard 解压（MCAP chunk 压缩） |
+| @ioai/wasm-zstd | Vite 友好的 WebAssembly Zstandard 解压（MCAP chunk 压缩） |
+| lz4js | 浏览器安全的 LZ4 解压（MCAP/ROS1 chunk 压缩） |
 
 ---
 
@@ -351,7 +351,7 @@ interface Readable {
 }
 
 // 本地文件
-class BlobReadable implements Readable { ... }
+// 使用 @mcap/browser BlobReadable，并适配到 MCAP IReadable API。
 
 // 远程文件（HTTP Range + LRU 缓存）
 class CachedFilelike implements Readable {
@@ -854,7 +854,7 @@ rosview/
     └── infra/
         ├── workers/                    # mcap/bag/db3/hdf5 worker 与传输层
         ├── sources/                    # IterableSource 与各格式实现
-        └── services/                   # HttpFileReader、CachedFilelike、BlobReadable
+        └── services/                   # HttpFileReader、CachedFilelike
 ```
 
 以下能力若在旧版树状图中出现、但上表中未列出，视为 **规划/拆分方向** 或尚未以独立文件落地，以 `git` 与 IDE 为准。
@@ -900,7 +900,9 @@ rosview/
     "react-intl": "^10.1.2",
 
     "fflate": "^0.8.2",
-    "fzstd": "^0.1.1",
+    "@mcap/browser": "^1.1.0",
+    "@ioai/wasm-zstd": "^1.1.0",
+    "lz4js": "^0.2.0",
 
     "zustand": "^5.0.0",
     "eventemitter3": "^5.0.1"

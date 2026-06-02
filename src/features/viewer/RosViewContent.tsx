@@ -13,12 +13,14 @@ import {
 import { openRawMessagesPanel } from '@/features/workspace/sidebar/topic-list/openRawMessagesPanel';
 import { useIntl } from 'react-intl';
 import { WelcomeScreen } from '@/features/workspace/common/WelcomeScreen';
+import { LoadingOverlay } from '@/features/workspace/common/LoadingOverlay';
 import { useMessagePipeline } from '@/core/pipeline/useMessagePipeline';
 import type { MessagePipelineState } from '@/core/pipeline/store';
 import { useMessagePipelineStore } from '@/core/pipeline/store';
 import type { SampleDataset } from '@/services/sampleDatasets';
 import type { DatasetHistoryListItem } from '@/shared/utils/datasetHistory';
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/shared/ui/resizable';
+import { Skeleton } from '@/shared/ui/skeleton';
 import type { RosViewExtension } from '@/core/extensions/types';
 import { buildExtensionContext } from '@/core/extensions/buildContext';
 import type { FoxgloveLayoutData } from '@/core/preferences/foxgloveLayout';
@@ -49,7 +51,7 @@ interface RosViewContentProps {
   onSubmitRemoteUrl: (url: string) => void | Promise<void>;
   remoteSubmitLoading?: boolean;
   onSelectSample: (sample: SampleDataset) => void | Promise<void>;
-  onRequestChangeRemoteUrl?: () => void;
+  onCancelLoading?: () => void;
   historyItems: DatasetHistoryListItem[];
   onReplayHistory: (id: string) => void | Promise<void>;
   onDropRosRecordingFiles: (files: File[], items?: DataTransferItemList) => void | Promise<void>;
@@ -89,7 +91,7 @@ export const RosViewContent: React.FC<RosViewContentProps> = ({
   onSubmitRemoteUrl,
   remoteSubmitLoading,
   onSelectSample,
-  onRequestChangeRemoteUrl,
+  onCancelLoading,
   historyItems,
   onReplayHistory,
   onDropRosRecordingFiles,
@@ -112,8 +114,8 @@ export const RosViewContent: React.FC<RosViewContentProps> = ({
   const { formatMessage } = useIntl();
   const presence = useMessagePipeline((state: MessagePipelineState) => state.playerState.presence);
   const sortedTopics = useMessagePipeline((state: MessagePipelineState) => state.sortedTopics);
-  const isLoading = presence === 'initializing';
   const isReady = presence === 'ready';
+  const showWelcomeFallback = !isReady && Boolean(manualOpenHint);
   const topicDragDepthRef = useRef(0);
   const [sidebarPanelPercent, setSidebarPanelPercent] = useState(() =>
     getInitialSidebarPanelPercent(preferencePersistence),
@@ -251,11 +253,9 @@ export const RosViewContent: React.FC<RosViewContentProps> = ({
 
   return (
     <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
-      {!isReady ? (
+      {showWelcomeFallback ? (
         <div className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
           <WelcomeScreen
-            isLoading={isLoading}
-            loadingSourceName={loadingSourceName}
             manualOpenHint={manualOpenHint}
             onOpenFile={onOpenFilePick}
             onOpenDirectory={onOpenDirectory}
@@ -263,7 +263,6 @@ export const RosViewContent: React.FC<RosViewContentProps> = ({
             onSubmitRemoteUrl={onSubmitRemoteUrl}
             remoteSubmitLoading={remoteSubmitLoading}
             onSelectSample={onSelectSample}
-            onRequestChangeRemoteUrl={onRequestChangeRemoteUrl}
             historyItems={historyItems}
             onReplayHistory={onReplayHistory}
           />
@@ -334,10 +333,10 @@ export const RosViewContent: React.FC<RosViewContentProps> = ({
                 className={`relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background [contain:strict] ${
                   isTopicDragOver ? 'ring-1 ring-inset ring-primary/40' : ''
                 }`}
-                onDragEnter={handleTopicDragEnter}
-                onDragOver={handleMainDragOver}
-                onDragLeave={handleTopicDragLeave}
-                onDrop={handleMainDrop}
+                onDragEnter={isReady ? handleTopicDragEnter : undefined}
+                onDragOver={isReady ? handleMainDragOver : undefined}
+                onDragLeave={isReady ? handleTopicDragLeave : undefined}
+                onDrop={isReady ? handleMainDrop : undefined}
               >
                 {isTopicDragOver && (
                   <div className="pointer-events-none absolute inset-4 z-10 flex items-center justify-center rounded-lg border border-dashed border-primary/60 bg-primary/5">
@@ -351,17 +350,30 @@ export const RosViewContent: React.FC<RosViewContentProps> = ({
                     </div>
                   </div>
                 )}
-                <DockviewLayout
-                  key={activeDatasetId ?? 'dataset'}
-                  player={player}
-                  preferAutoLayout={preferAutoLayout}
-                  initialLayout={initialLayout}
-                  defaultPanel={defaultPanel}
-                  layoutPersistence={layoutPersistence}
-                  layoutStorageKey={layoutStorageKey}
-                  suppressWelcomePanel={suppressWelcomePanel}
-                  onLayoutReady={onLayoutReady}
-                />
+                {isReady ? (
+                  <DockviewLayout
+                    key={activeDatasetId ?? 'dataset'}
+                    player={player}
+                    preferAutoLayout={preferAutoLayout}
+                    initialLayout={initialLayout}
+                    defaultPanel={defaultPanel}
+                    layoutPersistence={layoutPersistence}
+                    layoutStorageKey={layoutStorageKey}
+                    suppressWelcomePanel={suppressWelcomePanel}
+                    onLayoutReady={onLayoutReady}
+                  />
+                ) : (
+                  <div className="flex min-h-0 flex-1 flex-col gap-3 p-4">
+                    <Skeleton className="h-8 w-40" />
+                    <Skeleton className="min-h-0 flex-1 rounded-lg" />
+                  </div>
+                )}
+                {!isReady ? (
+                  <LoadingOverlay
+                    sourceName={loadingSourceName}
+                    onCancel={onCancelLoading}
+                  />
+                ) : null}
               </main>
             </ResizablePanel>
           </ResizablePanelGroup>

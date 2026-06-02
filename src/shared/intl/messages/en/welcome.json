@@ -51,8 +51,8 @@
   "welcome.fileTypes": "mcap · bag · db3 · hdf5 · bvh",
   "welcome.directoryHint": "All matching files in folder",
   "welcome.loadingTitle": "Opening…",
-  "welcome.loadingHint": "Parsing index — large or remote files may take a moment.",
-  "welcome.changeUrl": "Different URL",
+  "welcome.loadingPhase.preparing": "Preparing…",
+  "welcome.cancelLoading": "Cancel",
   "welcome.manualOpenFileHint": "Please manually open the {name} file.",
   "welcome.manualOpenFolderHint": "Please manually open the {name} folder."
 }

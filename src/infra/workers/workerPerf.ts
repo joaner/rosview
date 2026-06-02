@@ -25,6 +25,7 @@ class WorkerPerfCollector {
   private _startedAtMs = 0;
   private _buckets = new Map<string, WorkerPerfBucket>();
   private _topicBuckets = new Map<string, WorkerPerfTopicBucket>();
+  private _gauges = new Map<string, number>();
 
   configure(config: WorkerPerfConfig): void {
     this._enabled = config.enabled;
@@ -34,6 +35,7 @@ class WorkerPerfCollector {
     this._startedAtMs = this._lastFlushMs;
     this._buckets.clear();
     this._topicBuckets.clear();
+    this._gauges.clear();
     if (this._enabled) {
       console.info(`[WorkerPerf:${this._label}] enabled`);
     }
@@ -92,6 +94,14 @@ class WorkerPerfCollector {
     this.flushMaybe();
   }
 
+  recordGauge(name: string, value: number): void {
+    if (!this._enabled || !Number.isFinite(value)) {
+      return;
+    }
+    this._gauges.set(name, Number(value.toFixed(3)));
+    this.flushMaybe();
+  }
+
   flushMaybe(force = false): void {
     if (!this._enabled) {
       return;
@@ -112,6 +122,7 @@ class WorkerPerfCollector {
       elapsedMs: Math.round(now - this._startedAtMs),
       buckets,
       topTopics: topics,
+      gauges: Object.fromEntries(this._gauges),
     })}`);
   }
 

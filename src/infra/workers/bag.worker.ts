@@ -69,7 +69,14 @@ class BagWorker implements IWorkerSerializedSourceWorker {
       throw new Error("Invalid arguments for BagWorker");
     }
 
-    this._source = new BagIterableSource(sourceArgs);
+    const zstdWasmBinary = args.zstdWasmBinary;
+    if (!(zstdWasmBinary instanceof ArrayBuffer)) {
+      throw new Error(
+        "BagWorker: zstdWasmBinary required (pass wasm bytes from main thread for inline workers)",
+      );
+    }
+
+    this._source = new BagIterableSource(sourceArgs, { wasmBinary: zstdWasmBinary });
     const init = await this._source.initialize();
     this._initialization = init;
     this._qualityScan.initialize(this._source, init, args.autoDataQualityScan === true);

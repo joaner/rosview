@@ -11,26 +11,26 @@
 | `npm run build:lib` | `tsc` + **npm package** build (`vite.lib.config.ts` → `dist-lib/`); used by `prepublishOnly` and embedders. |
 | `npm run test:e2e` | Playwright (requires fixture MCAP; see below). |
 
-## Fixtures (`public/examples/`)
+## Fixtures
 
-Place sample bags/MCAP files here for local dev and E2E. Expected names include:
-
-- `test_5s.mcap` — minimal indexed MCAP for most Playwright cases (generated automatically before `test:e2e`; see `scripts/gen-test-mcap.mjs`)
-- `episode_20260122_122345.hdf5` — optional HDF5 case
-
-Regenerate the default small MCAP (also run as `pretest:e2e` via `npm run gen:e2e:fixtures`):
+Committed sources live under **`test-fixtures/`** (layouts, minimal HDF5/BVH, H264/JPEG bytes). Playwright copies or generates runtime files into **`public/examples/`** (gitignored) via:
 
 ```bash
 npm run gen:e2e:fixtures
 ```
 
-Override paths when files live elsewhere:
+This runs automatically as `pretest:e2e` before `npm run test:e2e`.
 
-```bash
-export ROSVIEW_TEST_MCAP=/absolute/path/to/test_5s.mcap
-export ROSVIEW_TEST_HDF5=/absolute/path/to/episode.hdf5
-npm run test:e2e
-```
+| Generated file (`public/examples/`) | Purpose |
+|-------------------------------------|---------|
+| `test_5s.mcap` | Basic MCAP playback, dockview, transport |
+| `test_pose.mcap` | PoseStamped sidebar topics |
+| `test_3cam.mcap` | Three-camera image grid layout |
+| `test_h264.mcap` | H.264 CompressedImage decode |
+| `test_minimal.hdf5` | ALOHA-schema HDF5 (~7 KB) |
+| `test_minimal.bvh` | Minimal BVH skeleton |
+
+Vitest layout round-trip tests import JSON directly from `test-fixtures/layouts/`.
 
 For sample deep links (`?url=sample://…`), set `VITE_SAMPLE_DATASETS_MANIFEST_URL` in `.env` to a reachable JSON manifest (see `src/services/sampleDatasets.ts`).
 
@@ -62,7 +62,7 @@ Prefer main-thread rendering and subscription tuning before MCAP-parse WASM. Con
 **Prerequisites**
 
 1. `npm install` and (first time) `npx playwright install`.
-2. Put `test_5s.mcap` under `public/examples/` or set `ROSVIEW_TEST_MCAP`.
+2. `npm run gen:e2e:fixtures` (also runs automatically before `test:e2e`).
 3. `npm run dev` → `http://localhost:5173`.
 
 **Playwright**
@@ -80,4 +80,4 @@ npm run test:e2e
 3. Switch to **Data** if multiple sources are present; the successfully loaded row is highlighted.
 4. Open `/`, upload or drag a local `.mcap`; confirm load succeeds.
 
-If no local sample is available, smoke-test routing and sidebar shell only; full Range behavior needs same-origin static assets and correct CORS/Range headers.
+Full E2E coverage requires `npm run gen:e2e:fixtures` so `public/examples/` is populated; no files outside the repo are needed.

@@ -11,6 +11,7 @@ export default defineConfig({
     // Match vite preview host; static preview is more reliable for Range/HEAD than raw dev.
     baseURL: 'http://127.0.0.1:4173',
     trace: 'on-first-retry',
+    screenshot: 'only-on-failure',
   },
   projects: [
     {

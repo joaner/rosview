@@ -46,8 +46,25 @@ export default defineConfig({
     },
   },
   optimizeDeps: {
-    // Only exclude direct WASM packages — Vite cannot pre-bundle their binary assets.
-    exclude: [
+    // Playback workers are imported only after a dataset is opened. Pre-bundle their
+    // transitive parser/decompression deps up front so first-open in dev does not
+    // trigger Vite's "new dependencies optimized" reload and bounce back to home.
+    include: [
+      '@foxglove/omgidl-parser',
+      '@foxglove/omgidl-serialization',
+      '@foxglove/ros2idl-parser',
+      '@foxglove/rosmsg',
+      '@foxglove/rosmsg-serialization',
+      '@foxglove/rosmsg2-serialization',
+      '@ioai/wasm-zstd',
+      '@mcap/browser',
+      '@mcap/core',
+      'eventemitter3',
+      'flatbuffers/js/flexbuffers.js',
+      'intervals-fn',
+      'lz4js',
+      'protobufjs',
+      'protobufjs/ext/descriptor',
       '@ioai/hdf5',
     ],
   },
@@ -67,7 +84,10 @@ export default defineConfig({
       },
       output: {
         format: 'es',
-        codeSplitting: true,
+        // @ioai/hdf5 dynamic import must stay in the worker bundle — splitting it
+        // emits a sibling chunk (dist-*.js) that workers resolve with a broken
+        // relative URL under preview/assets/.
+        codeSplitting: false,
       },
     },
   },

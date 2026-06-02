@@ -2,6 +2,8 @@ import React, { createContext, useContext, useEffect, useMemo, useState } from '
 import { IntlProvider } from 'react-intl';
 import { getRosViewMessages, type RosViewLocale } from '@/shared/intl/loadRosViewMessages';
 import { Toaster } from '@/shared/ui/sonner';
+import { useMessagePipeline } from '@/core/pipeline/useMessagePipeline';
+import type { MessagePipelineState } from '@/core/pipeline/store';
 
 export interface RosViewProviderProps {
   theme?: 'light' | 'dark' | 'system';
@@ -73,6 +75,9 @@ export const RosViewProvider: React.FC<RosViewProviderProps> = ({
   );
 
   const messages = useMemo(() => getRosViewMessages(language), [language]);
+  const playerPresence = useMessagePipeline(
+    (state: MessagePipelineState) => state.playerState.presence,
+  );
 
   return (
     <RosViewThemeContext.Provider value={contextValue}>
@@ -80,6 +85,7 @@ export const RosViewProvider: React.FC<RosViewProviderProps> = ({
         id="rosview-root"
         data-language={language}
         data-theme={resolvedTheme}
+        data-player-presence={playerPresence}
         className={`w-full h-full ${resolvedTheme === 'dark' ? 'dark' : ''}`}
       >
         <IntlProvider locale={intlLocaleFor(language)} defaultLocale="en" messages={messages}>

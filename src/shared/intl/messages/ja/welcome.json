@@ -51,8 +51,8 @@
   "welcome.fileTypes": "mcap · bag · db3 · hdf5 · bvh",
   "welcome.directoryHint": "フォルダ内の該当ファイルすべて",
   "welcome.loadingTitle": "開いています…",
-  "welcome.loadingHint": "索引を解析中です。大きなファイルは時間がかかることがあります。",
-  "welcome.changeUrl": "URL を変更",
+  "welcome.loadingPhase.preparing": "準備中…",
+  "welcome.cancelLoading": "キャンセル",
   "welcome.manualOpenFileHint": "{name} ファイルを手動で開いてください。",
   "welcome.manualOpenFolderHint": "{name} フォルダを手動で開いてください。"
 }

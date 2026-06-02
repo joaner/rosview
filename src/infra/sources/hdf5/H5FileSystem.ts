@@ -2,7 +2,7 @@
  * Bridges between our data source inputs (Blob / URL) and the Emscripten
  * in-memory filesystem that the `@ioai/hdf5` Emscripten module exposes.
  *
- * Runs exclusively inside the Worker, after `import('@ioai/hdf5').default.ready`.
+ * Runs exclusively inside the Worker, after `initHdf5()` has initialized the runtime.
  *
  * - Local file (Blob): loaded fully into a Uint8Array and written to MEMFS.
  *   Simple, self-contained, and avoids the restrictions of lazy files.
@@ -82,6 +82,30 @@ export async function mountUrlAsLazyFile(
   const path = `${WORK_DIR}/${name}`;
   if (h5.FS.analyzePath(path).exists) {
     try { h5.FS.unlink(path); } catch { /* best effort */ }
+  }
+
+  // Small same-origin files are eager-fetched into MEMFS. Emscripten lazy URLs
+  // can fail in module workers, and tiny fixtures do not benefit from range IO.
+  try {
+    const headRes = await fetch(url, { method: 'HEAD' });
+    const len = Number(headRes.headers.get('content-length') ?? 0);
+    if (headRes.ok && len > 0 && len <= 32 * 1024 * 1024) {
+      const res = await fetch(url);
+      if (res.ok) {
+        const buf = new Uint8Array(await res.arrayBuffer());
+        h5.FS.writeFile(path, buf);
+        return {
+          path,
+          totalBytes: buf.byteLength,
+          lazy: false,
+          dispose: () => {
+            try { h5.FS.unlink(path); } catch { /* ignore */ }
+          },
+        };
+      }
+    }
+  } catch {
+    // Fall through to lazy mount for large or remote files.
   }
 
   let totalBytes = 0;

@@ -1,6 +1,7 @@
 import * as Comlink from "comlink";
+import { BlobReadable } from "@mcap/browser";
 import { McapIndexedReader } from "@mcap/core";
-import type { Readable } from '@/core/types/player';
+import type { IReadable } from "@mcap/core";
 import type { Initialization, MessageEvent, TimeRange } from '@/core/types/ros';
 import type {
   IWorkerSerializedSourceWorker,
@@ -16,7 +17,6 @@ import { loadDecompressHandlers } from '@/infra/sources/decompressHandlers';
 import { MessageCursor } from "./MessageCursor";
 import { HttpFileReader } from '@/infra/services/HttpFileReader';
 import CachedFilelike from '@/infra/services/CachedFilelike';
-import { BlobReadable } from '@/infra/services/BlobReadable';
 import { resolveWorkerHttpUrl } from '@/shared/utils/resolveWorkerHttpUrl';
 import type { LoadProgress } from "./types";
 import type { TransportDiagnostics, WorkerTransportConfig } from "./transport";
@@ -41,6 +41,7 @@ const MAX_PREFETCH_BYTES = 768 * MIB;
 const MAX_PREFETCH_HORIZON_NS = 15_000_000_000n;
 const MAX_CONTIGUOUS_CHUNK_GAP_NS = 750_000_000n;
 const DEFAULT_PREFETCH_AHEAD_MS = 5_000;
+const PLAYBACK_CURSOR_BUFFER_AHEAD_MS = 1_500;
 
 function isByteRangeCovered(query: Range, downloaded: readonly Range[]): boolean {
   return downloaded.some((range) => range.start <= query.start && range.end >= query.end);
@@ -67,7 +68,7 @@ class McapWorkerImpl implements IWorkerSerializedSourceWorker {
     });
     console.log("McapWorker: initialize starting", args);
     try {
-      let readable: Readable;
+      let rawReadable: IReadable;
       const url = typeof args.url === 'string' ? args.url : undefined;
       const file = args.file instanceof Blob ? args.file : undefined;
       if (url) {
@@ -83,32 +84,44 @@ class McapWorkerImpl implements IWorkerSerializedSourceWorker {
           knownTotalBytes != null ? { knownTotalBytes } : undefined,
         );
         this._remoteCacheBytes = resolveRemoteCacheBytes();
-        this._cachedReadable = new CachedFilelike({
+        const cachedReadable = new CachedFilelike({
           fileReader,
           cacheSizeInBytes: this._remoteCacheBytes,
           preferCacheViews: true,
         });
-        readable = this._cachedReadable;
+        this._cachedReadable = cachedReadable;
+        rawReadable = {
+          size: async () => BigInt(await cachedReadable.size()),
+          read: async (offset: bigint, length: bigint) =>
+            await cachedReadable.read(Number(offset), Number(length)),
+        };
       } else if (file) {
-        readable = new BlobReadable(file);
+        rawReadable = new BlobReadable(file);
         this._cachedReadable = undefined;
         this._totalBytes = file.size;
       } else {
         throw new Error("McapWorker: neither url nor file provided");
       }
 
+      const zstdWasmBinary = args.zstdWasmBinary;
+      if (!(zstdWasmBinary instanceof ArrayBuffer)) {
+        throw new Error(
+          "McapWorker: zstdWasmBinary required (pass wasm bytes from main thread for inline workers)",
+        );
+      }
+
       const decompressHandlers = await workerPerf.timeAsync(
         "initialize.loadDecompressHandlers",
-        () => loadDecompressHandlers(),
+        () => loadDecompressHandlers({ wasmBinary: zstdWasmBinary }),
       );
       
       const mcapReadable = {
-        size: async () => BigInt(await readable.size()),
+        size: async () => await rawReadable.size(),
         read: async (offset: bigint, length: bigint) => {
           const byteLength = Number(length);
           return await workerPerf.timeAsync<Uint8Array>(
             "mcapReadable.read",
-            async () => await readable.read(Number(offset), byteLength),
+            async () => await rawReadable.read(offset, length),
             byteLength,
           );
         }
@@ -174,10 +187,12 @@ class McapWorkerImpl implements IWorkerSerializedSourceWorker {
     this._prefetchAnchor = args.startTime;
     this._scheduleTimePrefixPrefetch();
     const iterator = this._source.messageIterator(args);
-    return Promise.resolve(Comlink.proxy(new MessageCursor(iterator, {
+    const cursorOptions = {
       ...this._transportConfig,
       latestOnlyTopics: args.latestOnlyTopics,
-    })));
+      ...(args.endTime == undefined ? { maxBufferDurationMs: PLAYBACK_CURSOR_BUFFER_AHEAD_MS } : {}),
+    };
+    return Promise.resolve(Comlink.proxy(new MessageCursor(iterator, cursorOptions)));
   }
 
   async getBackfillMessages(args: GetBackfillMessagesArgs): Promise<MessageEvent[]> {

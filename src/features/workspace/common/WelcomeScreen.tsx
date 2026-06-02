@@ -1,18 +1,13 @@
 import React from 'react';
-import { Link2 } from 'lucide-react';
 import { useIntl } from 'react-intl';
 import type { SampleDataset } from '@/services/sampleDatasets';
 import type { DatasetHistoryListItem } from '@/shared/utils/datasetHistory';
 import { useSampleDatasets } from '@/hooks/useSampleDatasets';
 import { DatasetSourceSelector } from '@/features/workspace/welcome/DatasetSourceSelector';
 import { SampleDatasetList } from '@/features/workspace/welcome/SampleDatasetList';
-import { Button } from '@/shared/ui/button';
 import { Separator } from '@/shared/ui/separator';
-import { Spinner } from '@/shared/ui/spinner';
 
 interface WelcomeScreenProps {
-  isLoading?: boolean;
-  loadingSourceName?: string;
   manualOpenHint?: string | null;
   onOpenFile: () => void;
   onOpenDirectory: () => void;
@@ -20,14 +15,11 @@ interface WelcomeScreenProps {
   onSubmitRemoteUrl: (url: string) => void | Promise<void>;
   remoteSubmitLoading?: boolean;
   onSelectSample: (sample: SampleDataset) => void | Promise<void>;
-  onRequestChangeRemoteUrl?: () => void;
   historyItems?: DatasetHistoryListItem[];
   onReplayHistory?: (id: string) => void | Promise<void>;
 }
 
 export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
-  isLoading,
-  loadingSourceName,
   manualOpenHint,
   onOpenFile,
   onOpenDirectory,
@@ -35,7 +27,6 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
   onSubmitRemoteUrl,
   remoteSubmitLoading,
   onSelectSample,
-  onRequestChangeRemoteUrl,
   historyItems = [],
   onReplayHistory,
 }) => {
@@ -44,31 +35,6 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
   const hasSamples = samples.length > 0;
   /** Show samples column while loading or when any samples exist; hide when none configured after load. */
   const showSamplesSection = samplesLoading || hasSamples;
-
-  if (isLoading) {
-    return (
-      <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-8 bg-background px-6 py-16">
-        <div className="w-full max-w-sm rounded-xl border border-border bg-card px-8 py-12 text-center shadow-sm">
-          <Spinner className="mx-auto mb-5 size-10 text-primary" aria-hidden />
-          <h2 className="text-lg font-semibold tracking-tight text-foreground">
-            {formatMessage({ id: 'welcome.loadingTitle' })}
-          </h2>
-          {loadingSourceName ? (
-            <p className="mx-auto mt-3 max-w-full truncate text-xs text-muted-foreground" title={loadingSourceName}>
-              {loadingSourceName}
-            </p>
-          ) : null}
-          <p className="mt-4 text-sm text-muted-foreground">{formatMessage({ id: 'welcome.loadingHint' })}</p>
-        </div>
-        {onRequestChangeRemoteUrl ? (
-          <Button type="button" variant="link" className="text-sm" onClick={onRequestChangeRemoteUrl}>
-            <Link2 data-icon="inline-start" aria-hidden />
-            {formatMessage({ id: 'welcome.changeUrl' })}
-          </Button>
-        ) : null}
-      </div>
-    );
-  }
 
   return (
     <div className="relative flex min-h-0 w-full min-w-0 flex-1 flex-col overflow-y-auto bg-background">
