@@ -71,8 +71,8 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
   }
 
   return (
-    <div className="relative flex min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden bg-background">
-      <div className="relative mx-auto flex min-h-[100dvh] w-full min-w-0 max-w-6xl flex-1 flex-col overflow-y-auto px-4 pb-12 pt-8 sm:px-6 sm:pb-16 sm:pt-12 lg:pb-20 lg:pt-14">
+    <div className="relative flex min-h-0 w-full min-w-0 flex-1 flex-col overflow-y-auto bg-background">
+      <div className="relative mx-auto flex min-h-full w-full min-w-0 max-w-6xl flex-col px-4 pb-12 pt-8 sm:px-6 sm:pb-16 sm:pt-12 lg:pb-20 lg:pt-14">
         <div className="flex flex-1 flex-col">
           <header className="mb-10 text-center sm:mb-12">
             <h1 className="text-4xl font-bold tracking-tight text-foreground sm:text-5xl lg:text-6xl">
