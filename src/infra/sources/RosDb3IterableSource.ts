@@ -166,6 +166,7 @@ export class RosDb3IterableSource implements IIterableSource {
       publishersByTopic: {},
       topicStats,
       problems: [],
+      randomAccessByTopic: true,
     };
   }
 

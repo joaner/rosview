@@ -62,6 +62,7 @@ export class BvhIterableSource implements IIterableSource {
       topicStats,
       problems: layout.warnings.map((message) => ({ severity: "warn" as const, message })),
       preferredSamplingFps: frequency > 0 ? frequency : undefined,
+      randomAccessByTopic: false,
     });
   }
 

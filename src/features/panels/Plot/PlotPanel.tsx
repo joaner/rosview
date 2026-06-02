@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Download, RefreshCw } from 'lucide-react';
+import { useIntl } from 'react-intl';
 import { useShallow } from 'zustand/react/shallow';
 import uPlot from 'uplot';
 import 'uplot/dist/uPlot.min.css';
@@ -7,12 +7,33 @@ import { timeToSec } from '@/core/analysis/timeSeries';
 import type { MessagePipelineState } from '@/core/pipeline/store';
 import { useMessagePipeline } from '@/core/pipeline/useMessagePipeline';
 import type { Player } from '@/core/types/player';
-import type { Time } from '@/core/types/ros';
-import { fromNano } from '@/shared/utils/time';
+import type { TopicInfo } from '@/core/types/ros';
+import { isJointStateSchema } from '@/shared/ros/rosMessageTypes';
+import { scheduleFrame } from '@/shared/utils/rafScheduler';
 import { TopicQuickPicker } from '../framework';
 import { buildPlotDataset, type PlotDataset } from './datasets';
-import type { PlotConfig, PlotSeriesConfig, PlotXAxisMode } from './defaults';
+import type { JointStateField, PlotConfig } from './defaults';
+import { JOINT_STATE_FIELDS } from './defaults';
+import { filterPlottableTopics, isPlottableTopic } from './plottableSchemas';
+import { pickDefaultPlotTopic } from './pickDefaultPlotTopic';
+import {
+  createPlotUplotOptions,
+  mountPlotChart,
+  readPlotChartColors,
+  secToTime,
+} from './plotChart';
 import { readPlotRange, type PlotRangeReadProgress } from './rangeReader';
+import {
+  buildSeriesForTopic,
+  mergeDetectedSeries,
+  rebuildJointStateSeries,
+} from './topicPaths';
+import { hiddenSeriesIndices, pruneHiddenLegendKeys } from './plotLegendVisibility';
+import {
+  clearPlotLegendEntries,
+  setPlotLegendEntries,
+} from './plotPanelRuntimeStore';
+import { formatPlotDatasetWarning } from './plotWarnings';
 
 interface PlotPanelProps {
   player: Player;
@@ -26,82 +47,122 @@ const EMPTY_DATASET: PlotDataset = {
   series: [],
   data: [[]] as uPlot.AlignedData,
   pointCount: 0,
+  sampleRatio: 1,
   warnings: [],
 };
-
-function timeFromSeconds(seconds: number): Time {
-  return fromNano(BigInt(Math.round(seconds * 1e9)));
-}
 
 function isAbortError(error: unknown): boolean {
   return error instanceof DOMException && error.name === 'AbortError';
 }
 
-function formatProgress(progress: PlotRangeReadProgress | null): string {
-  if (!progress) return '';
-  return `${progress.completed}/${progress.total} chunks, ${progress.messages.toLocaleString()} messages`;
-}
-
-function csvEscape(value: unknown): string {
-  const text =
-    value == null
-      ? ''
-      : typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean'
-        ? String(value)
-        : JSON.stringify(value);
-  return /[",\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
-}
-
-function downloadCsv(dataset: PlotDataset): void {
-  const xValues = dataset.data[0] as number[];
-  const rows: string[] = [
-    ['x', ...dataset.series.map((series) => series.label)].map(csvEscape).join(','),
-  ];
-  for (let i = 0; i < xValues.length; i++) {
-    rows.push(
-      [
-        xValues[i],
-        ...dataset.series.map((_, seriesIndex) => {
-          const values = dataset.data[seriesIndex + 1] as Array<number | null>;
-          return values[i] ?? '';
-        }),
-      ].map(csvEscape).join(','),
-    );
-  }
-  const blob = new Blob([rows.join('\n')], { type: 'text/csv;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement('a');
-  anchor.href = url;
-  anchor.download = 'plot.csv';
-  anchor.click();
-  URL.revokeObjectURL(url);
-}
-
-function seriesColor(index: number): string {
-  return `hsl(${(index * 137.508) % 360}, 70%, 50%)`;
+function JointStateFieldChips({
+  fields,
+  fieldLabels,
+  onChange,
+}: {
+  fields: JointStateField[];
+  fieldLabels: Record<JointStateField, string>;
+  onChange: (fields: JointStateField[]) => void;
+}): React.ReactNode {
+  return (
+    <div className="flex items-center gap-0.5">
+      {JOINT_STATE_FIELDS.map((field) => {
+        const active = fields.includes(field);
+        return (
+          <button
+            key={field}
+            type="button"
+            onClick={() => {
+              const next = active ? fields.filter((f) => f !== field) : [...fields, field];
+              onChange(next.length > 0 ? next : ['position']);
+            }}
+            className={`rounded px-1.5 py-0.5 text-[10px] capitalize ${
+              active ? 'bg-primary/15 text-primary' : 'text-muted-foreground hover:bg-accent'
+            }`}
+          >
+            {fieldLabels[field]}
+          </button>
+        );
+      })}
+    </div>
+  );
 }
 
 export const PlotPanel: React.FC<PlotPanelProps> = ({ player, panelId, config, setConfig }) => {
+  const { formatMessage } = useIntl();
   const containerRef = useRef<HTMLDivElement | null>(null);
   const uplotRef = useRef<uPlot | null>(null);
+  const autoTopicAppliedRef = useRef(false);
+  const currentTimeSecRef = useRef<number | undefined>(
+    (() => {
+      const time = player.getCurrentTime();
+      return time ? timeToSec(time) : undefined;
+    })(),
+  );
+  const cancelPlayheadFrameRef = useRef<(() => void) | null>(null);
+  const followingViewWidthRef = useRef(config.followingViewWidthSec);
+  const xAxisModeRef = useRef(config.xAxisMode);
+
   const [dataset, setDataset] = useState<PlotDataset>(EMPTY_DATASET);
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState<PlotRangeReadProgress | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [reloadNonce, setReloadNonce] = useState(0);
-  const [currentTime, setCurrentTime] = useState<Time | undefined>(() => player.getCurrentTime());
+  const [detectingTopic, setDetectingTopic] = useState(false);
 
-  const { startTime, endTime } = useMessagePipeline(
+  const hiddenSeries = useMemo(
+    () => hiddenSeriesIndices(dataset.series, config.hiddenLegendKeys),
+    [config.hiddenLegendKeys, dataset.series],
+  );
+
+  followingViewWidthRef.current = config.followingViewWidthSec;
+  xAxisModeRef.current = config.xAxisMode;
+
+  const hasPlotPaths = useMemo(
+    () => config.series.some((series) => series.enabled && series.topic && series.path.trim().length > 0),
+    [config.series],
+  );
+
+  const { startTime, endTime, randomAccessByTopic, topics } = useMessagePipeline(
     useShallow((state: MessagePipelineState) => ({
       startTime: state.playerState.activeData?.startTime,
       endTime: state.playerState.activeData?.endTime,
+      randomAccessByTopic: state.playerState.activeData?.randomAccessByTopic,
+      topics: state.playerState.activeData?.topics ?? [],
     })),
   );
 
+  const plottableTopics = useMemo(() => filterPlottableTopics(topics), [topics]);
+
+  const topicByName = useMemo(() => {
+    const map = new Map<string, TopicInfo>();
+    for (const topic of topics) map.set(topic.name, topic);
+    return map;
+  }, [topics]);
+
   const activeTopics = useMemo(
-    () => Array.from(new Set(config.series.filter((series) => series.enabled && series.topic).map((series) => series.topic))).sort(),
-    [config.series],
+    () =>
+      Array.from(
+        new Set(
+          config.series
+            .filter((series) => series.enabled && series.topic)
+            .map((series) => series.topic)
+            .filter((topic) => {
+              const info = topicByName.get(topic);
+              return info ? isPlottableTopic(info) : false;
+            }),
+        ),
+      ).sort(),
+    [config.series, topicByName],
   );
+
+  const primary = config.series[0];
+  const primarySchema = primary?.topic ? topicByName.get(primary.topic)?.type : undefined;
+  const showJointStateFields = primarySchema ? isJointStateSchema(primarySchema) : false;
+
+  const xRange = useMemo(() => {
+    if (!startTime || !endTime || config.xAxisMode !== 'timestamp') return undefined;
+    return { min: timeToSec(startTime), max: timeToSec(endTime) };
+  }, [config.xAxisMode, endTime, startTime]);
 
   useEffect(() => {
     const subscriptions = activeTopics.map((topic) => ({ topic, subscriberId: panelId }));
@@ -111,10 +172,105 @@ export const PlotPanel: React.FC<PlotPanelProps> = ({ player, panelId, config, s
     return () => player.unregisterSubscriptions(panelId);
   }, [player, panelId, activeTopics]);
 
-  useEffect(() => player.subscribeCurrentTime(setCurrentTime), [player]);
+  useEffect(() => {
+    const unsub = player.subscribeCurrentTime((time) => {
+      currentTimeSecRef.current = timeToSec(time);
+      if (cancelPlayheadFrameRef.current) return;
+
+      cancelPlayheadFrameRef.current = scheduleFrame(() => {
+        cancelPlayheadFrameRef.current = null;
+        const chart = uplotRef.current;
+        if (!chart) return;
+
+        if (xAxisModeRef.current === 'timestamp' && followingViewWidthRef.current > 0) {
+          const end = currentTimeSecRef.current;
+          if (end != null && Number.isFinite(end)) {
+            chart.setScale('x', {
+              min: end - followingViewWidthRef.current,
+              max: end,
+            });
+          }
+        }
+
+        chart.redraw(false);
+      });
+    });
+
+    return () => {
+      unsub();
+      cancelPlayheadFrameRef.current?.();
+      cancelPlayheadFrameRef.current = null;
+    };
+  }, [player]);
 
   useEffect(() => {
-    if (!startTime || !endTime || activeTopics.length === 0) {
+    const entries = dataset.series.map((series) => ({
+      key: series.key,
+      label: series.label,
+      color: series.color,
+    }));
+    setPlotLegendEntries(panelId, entries);
+
+    setConfig((prev) => {
+      const keys = entries.map((entry) => entry.key);
+      const hiddenLegendKeys = pruneHiddenLegendKeys(prev.hiddenLegendKeys, keys);
+      if (hiddenLegendKeys.length === prev.hiddenLegendKeys.length) return prev;
+      return { ...prev, hiddenLegendKeys };
+    });
+  }, [dataset.series, panelId, setConfig]);
+
+  useEffect(() => () => clearPlotLegendEntries(panelId), [panelId]);
+
+  const applyTopicDetection = useCallback(
+    async (seriesId: string, topic: string) => {
+      if (!topic) {
+        setConfig((prev) => ({
+          ...prev,
+          series: prev.series.map((series) =>
+            series.id === seriesId ? { ...series, topic: '', path: '' } : series,
+          ),
+        }));
+        return;
+      }
+      setDetectingTopic(true);
+      try {
+        const isPrimary = seriesId === config.series[0]?.id;
+        const schemaName = topicByName.get(topic)?.type;
+        const result = await buildSeriesForTopic({
+          topic,
+          schemaName,
+          player,
+          startTime,
+          endTime,
+          existingSeriesId: seriesId,
+          jointStateFields: isPrimary ? config.jointStateFields : ['position'],
+        });
+        setConfig((prev) => ({
+          ...prev,
+          ...(isPrimary && result.xAxisMode ? { xAxisMode: result.xAxisMode } : {}),
+          series: mergeDetectedSeries(prev.series, seriesId, result.series),
+        }));
+      } finally {
+        setDetectingTopic(false);
+      }
+    },
+    [config.jointStateFields, config.series, endTime, player, setConfig, startTime, topicByName],
+  );
+
+  useEffect(() => {
+    if (autoTopicAppliedRef.current || !startTime || !endTime) return;
+    if (primary?.topic) {
+      autoTopicAppliedRef.current = true;
+      return;
+    }
+    const defaultTopic = pickDefaultPlotTopic(plottableTopics);
+    if (!defaultTopic || !config.series[0]?.id) return;
+    autoTopicAppliedRef.current = true;
+    void applyTopicDetection(config.series[0].id, defaultTopic);
+  }, [applyTopicDetection, config.series, endTime, plottableTopics, primary?.topic, startTime]);
+
+  useEffect(() => {
+    if (!startTime || !endTime || activeTopics.length === 0 || !hasPlotPaths) {
       setDataset(EMPTY_DATASET);
       setLoading(false);
       setProgress(null);
@@ -127,6 +283,12 @@ export const PlotPanel: React.FC<PlotPanelProps> = ({ player, panelId, config, s
     setProgress(null);
     setError(null);
 
+    const isIndexed = randomAccessByTopic !== false;
+    const maxMessages = isIndexed ? undefined : config.nonIndexedMaxMessages;
+    const extraWarnings = isIndexed
+      ? []
+      : [{ kind: 'nonIndexedSource' as const }];
+
     void readPlotRange({
       player,
       start: startTime,
@@ -134,10 +296,18 @@ export const PlotPanel: React.FC<PlotPanelProps> = ({ player, panelId, config, s
       topics: activeTopics,
       signal: controller.signal,
       onProgress: setProgress,
+      maxMessages,
     })
       .then((messages) => {
         if (controller.signal.aborted) return;
-        setDataset(buildPlotDataset(messages, config));
+        setDataset(
+          buildPlotDataset(messages, config, {
+            forceDownsample: !isIndexed,
+            extraWarnings,
+            logStart: startTime,
+            logEnd: endTime,
+          }),
+        );
       })
       .catch((err: unknown) => {
         if (!isAbortError(err)) {
@@ -152,51 +322,38 @@ export const PlotPanel: React.FC<PlotPanelProps> = ({ player, panelId, config, s
       });
 
     return () => controller.abort();
-  }, [activeTopics, config, endTime, player, reloadNonce, startTime]);
+  }, [activeTopics, config, endTime, hasPlotPaths, player, randomAccessByTopic, startTime]);
 
   const rebuildChart = useCallback(() => {
     const container = containerRef.current;
     if (!container) return;
+
     uplotRef.current?.destroy();
     uplotRef.current = null;
 
-    const opts: uPlot.Options = {
-      id: panelId,
-      width: container.offsetWidth || 400,
-      height: Math.max(container.offsetHeight || 200, 100),
-      series: [
-        { label: dataset.xLabel },
-        ...dataset.series.map((series, index) => ({
-          label: series.label,
-          stroke: series.color || seriesColor(index),
-          width: series.lineSize,
-          points: { show: false },
-          paths: series.showLine ? undefined : () => null,
-          spanGaps: false,
-        })),
-      ],
-      axes: [
-        { grid: { show: true }, stroke: '#888', font: '10px sans-serif' },
-        { grid: { show: true }, stroke: '#888', font: '10px sans-serif' },
-      ],
-      cursor: {
-        drag: { setScale: true },
-      },
-      legend: { show: true },
-      scales: { x: { time: config.xAxisMode === 'timestamp' } },
-    };
+    const colors = readPlotChartColors();
+    const options = createPlotUplotOptions(dataset, hiddenSeries, {
+      panelId,
+      xAxisMode: config.xAxisMode,
+      xRange,
+      logStart: startTime,
+      getCurrentTimeSec: () => currentTimeSecRef.current,
+      colors,
+    });
 
-    uplotRef.current = new uPlot(opts, dataset.data, container);
+    uplotRef.current = mountPlotChart(container, dataset, options, xRange);
+
     const observer = new ResizeObserver(() => {
-      if (!container || !uplotRef.current) return;
-      uplotRef.current.setSize({
+      const chart = uplotRef.current;
+      if (!container || !chart) return;
+      chart.setSize({
         width: container.offsetWidth || 400,
         height: Math.max(container.offsetHeight || 200, 100),
       });
     });
     observer.observe(container);
     return () => observer.disconnect();
-  }, [config.xAxisMode, dataset, panelId]);
+  }, [config.xAxisMode, dataset, hiddenSeries, panelId, startTime, xRange]);
 
   useEffect(() => {
     const cleanup = rebuildChart();
@@ -208,114 +365,128 @@ export const PlotPanel: React.FC<PlotPanelProps> = ({ player, panelId, config, s
   }, [rebuildChart]);
 
   useEffect(() => {
-    const u = uplotRef.current;
-    if (!u || config.xAxisMode !== 'timestamp' || !currentTime) return;
+    const chart = uplotRef.current;
+    if (!chart || config.xAxisMode !== 'timestamp') return;
     if (config.followingViewWidthSec > 0) {
-      const end = timeToSec(currentTime);
-      u.setScale('x', { min: end - config.followingViewWidthSec, max: end });
+      const end = currentTimeSecRef.current;
+      if (end != null && Number.isFinite(end)) {
+        chart.setScale('x', { min: end - config.followingViewWidthSec, max: end });
+      }
+    } else if (xRange) {
+      chart.setScale('x', xRange);
     }
-  }, [config.followingViewWidthSec, config.xAxisMode, currentTime]);
+  }, [config.followingViewWidthSec, config.xAxisMode, xRange]);
 
-  const updatePrimarySeries = (patch: Partial<PlotSeriesConfig>) => {
+  useEffect(() => {
+    const chart = uplotRef.current;
+    if (!chart) return;
+    for (let index = 0; index < dataset.series.length; index++) {
+      chart.setSeries(index + 1, { show: !hiddenSeries.has(index) });
+    }
+  }, [dataset.series.length, hiddenSeries]);
+
+  const updatePrimaryTopic = (topic: string) => {
+    const primaryId = config.series[0]?.id;
+    if (primaryId) void applyTopicDetection(primaryId, topic);
+  };
+
+  const handleJointStateFieldsChange = (fields: JointStateField[]) => {
     setConfig((prev) => {
-      const first = prev.series[0] ?? {
-        id: 'series-1',
-        topic: '',
-        path: 'data',
-        label: '',
-        color: '#3b82f6',
-        enabled: true,
-        timestampMode: 'headerStamp' as const,
-        showLine: true,
-        lineSize: 1.5,
-      };
-      return { ...prev, series: [{ ...first, ...patch }, ...prev.series.slice(1)] };
+      const topic = prev.series[0]?.topic ?? '';
+      const schema = topic ? topicByName.get(topic)?.type : undefined;
+      const next: PlotConfig = { ...prev, jointStateFields: fields };
+      if (topic && schema && isJointStateSchema(schema)) {
+        next.series = rebuildJointStateSeries(prev.series, topic, schema, fields);
+      }
+      return next;
     });
   };
 
-  const primary = config.series[0];
-  const hasSeries = activeTopics.length > 0;
-  const status = loading
-    ? `Loading ${formatProgress(progress)}`
-    : error
-      ? `Error: ${error}`
-      : `${dataset.pointCount.toLocaleString()} points`;
+  const jointFieldLabels = useMemo(
+    (): Record<JointStateField, string> => ({
+      position: formatMessage({ id: 'panels.jointStatePlot.toolbar.field.position' }),
+      velocity: formatMessage({ id: 'panels.jointStatePlot.toolbar.field.velocity' }),
+      effort: formatMessage({ id: 'panels.jointStatePlot.toolbar.field.effort' }),
+    }),
+    [formatMessage],
+  );
+
+  const primaryWarning = dataset.warnings[0];
+  const warningText = primaryWarning
+    ? formatPlotDatasetWarning(primaryWarning, formatMessage)
+    : undefined;
+
+  const hasSeries = activeTopics.length > 0 && hasPlotPaths;
+  const status = detectingTopic
+    ? formatMessage({ id: 'panels.plot.status.detectingPaths' })
+    : loading
+      ? progress
+        ? formatMessage(
+            { id: 'panels.plot.status.loadingProgress' },
+            { count: progress.messages.toLocaleString() },
+          )
+        : formatMessage({ id: 'panels.plot.status.loading' })
+      : error
+        ? error
+        : hasSeries && dataset.sampleRatio < 1
+          ? formatMessage(
+              { id: 'panels.plot.status.sampling' },
+              { percent: Math.round(dataset.sampleRatio * 100) },
+            )
+          : null;
 
   const handleChartClick = (event: React.MouseEvent<HTMLDivElement>) => {
-    const u = uplotRef.current;
-    if (!u || config.xAxisMode !== 'timestamp') return;
-    const rect = u.root.getBoundingClientRect();
-    const x = u.posToVal(event.clientX - rect.left, 'x');
+    const chart = uplotRef.current;
+    if (!chart || config.xAxisMode !== 'timestamp') return;
+    const rect = chart.root.getBoundingClientRect();
+    const x = chart.posToVal(event.clientX - rect.left, 'x');
     if (Number.isFinite(x)) {
-      player.seek(timeFromSeconds(x));
+      player.seek(secToTime(x));
     }
   };
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-background">
-      <div className="flex shrink-0 items-center gap-1.5 border-b border-border bg-muted px-1.5 py-0.5">
-        <div className="min-w-0 flex-1 max-w-[240px]">
+      <div className="flex shrink-0 items-center gap-2 border-b border-border bg-muted px-2 py-1">
+        <div className="min-w-0 flex-1 max-w-xs">
           <TopicQuickPicker
             value={primary?.topic ?? ''}
-            onChange={(topic) => updatePrimarySeries({ topic })}
-            placeholder="/topic"
-            triggerClassName="h-[22px] text-[10px] px-1.5"
+            onChange={updatePrimaryTopic}
+            topics={plottableTopics}
+            placeholder={formatMessage({ id: 'panels.plot.toolbar.selectTopic' })}
+            triggerClassName="h-[24px] text-[11px] px-2"
           />
         </div>
-        <input
-          value={primary?.path ?? 'data'}
-          onChange={(event) => updatePrimarySeries({ path: event.target.value })}
-          placeholder="data[:]"
-          className="h-[22px] w-36 rounded border border-input bg-background px-1.5 text-[10px] font-mono"
-        />
-        <select
-          value={config.xAxisMode}
-          onChange={(event) => setConfig((prev) => ({ ...prev, xAxisMode: event.target.value as PlotXAxisMode }))}
-          className="h-[22px] rounded border border-input bg-background px-1 text-[10px]"
-        >
-          <option value="timestamp">timestamp</option>
-          <option value="index">index</option>
-          <option value="custom">custom</option>
-          <option value="currentCustom">current custom</option>
-        </select>
-        <button
-          type="button"
-          onClick={() => setReloadNonce((value) => value + 1)}
-          className="rounded border border-border bg-background p-1 hover:bg-accent"
-          title="Reload plot data"
-        >
-          <RefreshCw className="h-3 w-3" />
-        </button>
-        <button
-          type="button"
-          onClick={() => downloadCsv(dataset)}
-          disabled={dataset.pointCount === 0}
-          className="rounded border border-border bg-background p-1 hover:bg-accent disabled:opacity-50"
-          title="Export CSV"
-        >
-          <Download className="h-3 w-3" />
-        </button>
-        <span className="ml-auto shrink-0 text-[10px] text-muted-foreground">{status}</span>
+        {showJointStateFields && (
+          <JointStateFieldChips
+            fields={config.jointStateFields}
+            fieldLabels={jointFieldLabels}
+            onChange={handleJointStateFieldsChange}
+          />
+        )}
+        {status && (
+          <span className="ml-auto shrink-0 text-[10px] text-muted-foreground">{status}</span>
+        )}
       </div>
-      <div className="relative min-h-0 flex-1">
+      <div className="relative min-h-0 flex-1 flex flex-col">
         <div
           ref={containerRef}
-          className="absolute inset-0 min-h-0 w-full overflow-hidden"
+          className="min-h-0 flex-1 w-full overflow-hidden"
           onClick={handleChartClick}
         />
         {!hasSeries && (
-          <div className="absolute inset-0 flex items-center justify-center px-4 text-center text-xs text-muted-foreground">
-            Select a topic and numeric path to plot.
+          <div className="pointer-events-none absolute inset-0 flex items-center justify-center px-4 text-center text-xs text-muted-foreground">
+            {formatMessage({ id: 'panels.plot.empty.selectTopic' })}
           </div>
         )}
-        {hasSeries && !loading && !error && dataset.pointCount === 0 && (
-          <div className="absolute inset-0 flex items-center justify-center px-4 text-center text-xs text-muted-foreground">
-            No numeric values found. Try paths like data, data[:], position[:], or pose.position.x.
+        {hasSeries && !loading && !detectingTopic && !error && dataset.pointCount === 0 && (
+          <div className="pointer-events-none absolute inset-0 flex items-center justify-center px-4 text-center text-xs text-muted-foreground">
+            {formatMessage({ id: 'panels.plot.empty.noNumericData' })}
           </div>
         )}
-        {dataset.warnings.length > 0 && (
+        {warningText && (
           <div className="absolute bottom-1 left-1 max-w-[70%] rounded border border-border bg-card/90 px-2 py-1 text-[10px] text-muted-foreground">
-            {dataset.warnings[0]}
+            {warningText}
           </div>
         )}
       </div>

@@ -16,6 +16,8 @@ export interface PlotRangeReadArgs {
   topics: string[];
   signal?: AbortSignal;
   onProgress?: (progress: PlotRangeReadProgress) => void;
+  /** Stop accumulating after this many messages (non-indexed sources). */
+  maxMessages?: number;
 }
 
 const DEFAULT_SEGMENTS = 24;
@@ -55,15 +57,20 @@ export async function readPlotRange({
   topics,
   signal,
   onProgress,
+  maxMessages,
 }: PlotRangeReadArgs): Promise<MessageEvent[]> {
   if (topics.length === 0 || !player.getMessagesInTimeRange) return [];
   const uniqueTopics = Array.from(new Set(topics)).sort();
   const segments = makeSegments(start, end);
   const deduped = new Map<string, MessageEvent>();
+  const messageLimit = maxMessages != null && maxMessages > 0 ? maxMessages : undefined;
 
   for (let i = 0; i < segments.length; i++) {
     if (signal?.aborted) {
       throw new DOMException('Plot range read aborted', 'AbortError');
+    }
+    if (messageLimit != null && deduped.size >= messageLimit) {
+      break;
     }
     const segment = segments[i];
     const messages = await readSegment(player, {
@@ -73,6 +80,9 @@ export async function readPlotRange({
     });
     for (const event of messages) {
       deduped.set(messageKey(event), event);
+      if (messageLimit != null && deduped.size >= messageLimit) {
+        break;
+      }
     }
     onProgress?.({ completed: i + 1, total: segments.length, messages: deduped.size });
     await new Promise((resolve) => globalThis.setTimeout(resolve, 0));

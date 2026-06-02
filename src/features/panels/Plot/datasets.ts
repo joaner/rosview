@@ -1,19 +1,21 @@
 import type uPlot from 'uplot';
 import {
   downsampleMinMaxLast,
-  resolveEventTimestamp,
+  resolvePlotEventTimestamp,
   timeToSec,
   type NumericPoint,
 } from '@/core/analysis/timeSeries';
-import type { MessageEvent } from '@/core/types/ros';
+import type { MessageEvent, Time } from '@/core/types/ros';
 import { extractPlotPathValues, hasDerivativeModifier } from './messagePath';
-import type { PlotConfig, PlotSeriesConfig } from './defaults';
+import { LASER_SCAN_ANGLE_X_PATH } from './adapters';
+import { paletteColor, type PlotConfig, type PlotLineStyle, type PlotSeriesConfig } from './defaults';
+import { plotWarningKey, type PlotDatasetWarning } from './plotWarnings';
 
 export interface PlotRuntimeSeries {
   key: string;
   label: string;
   color: string;
-  showLine: boolean;
+  lineStyle: PlotLineStyle;
   lineSize: number;
   enabled: boolean;
 }
@@ -23,21 +25,59 @@ export interface PlotDataset {
   series: PlotRuntimeSeries[];
   data: uPlot.AlignedData;
   pointCount: number;
-  warnings: string[];
+  /** Share of raw X-axis samples kept after downsampling; 1 when nothing was dropped. */
+  sampleRatio: number;
+  warnings: PlotDatasetWarning[];
+}
+
+export interface BuildPlotDatasetOptions {
+  /** When true, force downsampling regardless of config.downsampleMode. */
+  forceDownsample?: boolean;
+  /** Prepended warnings (e.g. non-indexed source notice). */
+  extraWarnings?: PlotDatasetWarning[];
+  /** Log bounds used to reject invalid header stamps for timestamp mode. */
+  logStart?: Time;
+  logEnd?: Time;
 }
 
 interface PointBucket {
   series: PlotRuntimeSeries;
   points: NumericPoint[];
   derivative: boolean;
+  seriesConfigId: string;
 }
 
 function isEnabledSeries(series: PlotSeriesConfig): boolean {
   return series.enabled && series.topic.length > 0 && series.path.trim().length > 0;
 }
 
-function seriesBaseLabel(series: PlotSeriesConfig): string {
-  return series.label.trim() || `${series.topic}.${series.path}`;
+/** Millisecond grid avoids float-key mismatches when merging multi-series timelines. */
+export function quantizePlotX(sec: number): number {
+  return Math.round(sec * 1000) / 1000;
+}
+
+function legendLabel(series: PlotSeriesConfig, labelSuffix: string): string {
+  if (labelSuffix && labelSuffix !== series.path) return labelSuffix;
+  if (series.label.trim()) return series.label.trim();
+  const pathLabel = labelSuffix || series.path || 'value';
+  return series.topic ? `${series.topic} · ${pathLabel}` : pathLabel;
+}
+
+function extractXValues(message: unknown, xAxisPath: string) {
+  if (xAxisPath === LASER_SCAN_ANGLE_X_PATH) {
+    if (!message || typeof message !== 'object') return [];
+    const record = message as Record<string, unknown>;
+    const ranges = record.ranges;
+    const angleMin = typeof record.angle_min === 'number' ? record.angle_min : 0;
+    const angleIncrement = typeof record.angle_increment === 'number' ? record.angle_increment : 0;
+    if (!Array.isArray(ranges)) return [];
+    return ranges.map((_, index) => ({
+      key: `angle[${index}]`,
+      label: `angle[${index}]`,
+      value: angleMin + index * angleIncrement,
+    }));
+  }
+  return extractPlotPathValues(message, xAxisPath);
 }
 
 function pushPoint(
@@ -51,38 +91,69 @@ function pushPoint(
   const key = `${series.id}:${keySuffix}`;
   let bucket = buckets.get(key);
   if (!bucket) {
-    const base = seriesBaseLabel(series);
     bucket = {
       series: {
         key,
-        label: labelSuffix && labelSuffix !== series.path ? `${base} ${labelSuffix}` : base,
+        label: legendLabel(series, labelSuffix),
         color: series.color,
-        showLine: series.showLine,
+        lineStyle: series.lineStyle,
         lineSize: series.lineSize,
         enabled: series.enabled,
       },
       points: [],
       derivative: hasDerivativeModifier(series.path),
+      seriesConfigId: series.id,
     };
     buckets.set(key, bucket);
   }
   bucket.points.push({ x, y });
 }
 
-function collectTimestampPoints(events: MessageEvent[], config: PlotConfig, warnings: string[]): Map<string, PointBucket> {
+function assignBucketColors(buckets: Map<string, PointBucket>): void {
+  const bucketsBySeries = new Map<string, PointBucket[]>();
+  for (const bucket of buckets.values()) {
+    const list = bucketsBySeries.get(bucket.seriesConfigId) ?? [];
+    list.push(bucket);
+    bucketsBySeries.set(bucket.seriesConfigId, list);
+  }
+
+  let paletteIndex = 0;
+  for (const seriesBuckets of bucketsBySeries.values()) {
+    if (seriesBuckets.length === 1) {
+      const bucket = seriesBuckets[0];
+      if (!bucket.series.color) {
+        bucket.series.color = paletteColor(paletteIndex++);
+      }
+      continue;
+    }
+    for (const bucket of seriesBuckets) {
+      bucket.series.color = paletteColor(paletteIndex++);
+    }
+  }
+}
+
+function collectTimestampPoints(
+  events: MessageEvent[],
+  config: PlotConfig,
+  warnings: PlotDatasetWarning[],
+  logStart?: Time,
+  logEnd?: Time,
+): Map<string, PointBucket> {
   const buckets = new Map<string, PointBucket>();
   const enabled = config.series.filter(isEnabledSeries);
   for (const series of enabled) {
     const topicEvents = events.filter((event) => event.topic === series.topic);
     for (const event of topicEvents) {
-      const x = timeToSec(resolveEventTimestamp(event, series.timestampMode).time);
+      const x = quantizePlotX(
+        timeToSec(resolvePlotEventTimestamp(event, series.timestampMode, logStart, logEnd).time),
+      );
       const values = extractPlotPathValues(event.message, series.path);
       for (const item of values) {
         pushPoint(buckets, series, item.key, item.label, x, item.value);
       }
     }
     if (topicEvents.length > 0 && ![...buckets.values()].some((bucket) => bucket.series.key.startsWith(`${series.id}:`))) {
-      warnings.push(`No numeric values found for ${series.topic}.${series.path}`);
+      warnings.push({ kind: 'noNumericValues', topic: series.topic, path: series.path });
     }
   }
   return buckets;
@@ -95,28 +166,33 @@ function collectIndexPoints(events: MessageEvent[], config: PlotConfig): Map<str
     if (!latest) continue;
     const values = extractPlotPathValues(latest.message, series.path);
     values.forEach((item, index) => {
-      pushPoint(buckets, series, 'value', '', index, item.value);
+      pushPoint(buckets, series, item.key || `${index}`, item.label, index, item.value);
     });
   }
   return buckets;
 }
 
-function collectCustomPoints(events: MessageEvent[], config: PlotConfig, latestOnly: boolean, warnings: string[]): Map<string, PointBucket> {
+function collectCustomPoints(events: MessageEvent[], config: PlotConfig, latestOnly: boolean, warnings: PlotDatasetWarning[]): Map<string, PointBucket> {
   const buckets = new Map<string, PointBucket>();
   for (const series of config.series.filter(isEnabledSeries)) {
     const xAxisPath = series.xAxisPath?.trim();
     if (!xAxisPath) {
-      warnings.push(`Missing X path for ${series.topic}.${series.path}`);
+      warnings.push({ kind: 'missingXPath', topic: series.topic, path: series.path });
       continue;
     }
     const topicEvents = events.filter((event) => event.topic === series.topic);
     const sourceEvents = latestOnly ? topicEvents.slice(-1) : topicEvents;
     for (const event of sourceEvents) {
-      const xs = extractPlotPathValues(event.message, xAxisPath);
+      const xs = extractXValues(event.message, xAxisPath);
       const ys = extractPlotPathValues(event.message, series.path);
       const count = Math.min(xs.length, ys.length);
       if (xs.length !== ys.length) {
-        warnings.push(`Mismatched X/Y lengths for ${series.topic}: ${xAxisPath} vs ${series.path}`);
+        warnings.push({
+          kind: 'mismatchedXY',
+          topic: series.topic,
+          xPath: xAxisPath,
+          yPath: series.path,
+        });
       }
       const singleCurve = xs.length > 1 && ys.length > 1;
       for (let i = 0; i < count; i++) {
@@ -140,7 +216,8 @@ function collectCustomPoints(events: MessageEvent[], config: PlotConfig, latestO
 function uniqueSortedPoints(points: NumericPoint[]): NumericPoint[] {
   const map = new Map<number, number | null>();
   for (const point of points) {
-    map.set(point.x, point.y);
+    const x = quantizePlotX(point.x);
+    map.set(x, point.y);
   }
   return [...map.entries()]
     .sort(([a], [b]) => a - b)
@@ -159,42 +236,80 @@ function derivative(points: NumericPoint[]): NumericPoint[] {
   return out;
 }
 
-function alignBuckets(buckets: PointBucket[], maxPoints: number, downsample: boolean): uPlot.AlignedData {
+function downsampleSharedXAxis(
+  xValues: number[],
+  ySeries: (number | null)[][],
+  maxPoints: number,
+): [number[], (number | null)[][]] {
+  if (xValues.length <= maxPoints) return [xValues, ySeries];
+
+  const coveragePoints: NumericPoint[] = xValues.map((x, index) => ({
+    x,
+    y: ySeries.reduce((count, values) => count + (values[index] != null ? 1 : 0), 0),
+  }));
+  const sampled = downsampleMinMaxLast(coveragePoints, maxPoints);
+  const newX = [...new Set(sampled.map((point) => point.x))].sort((a, b) => a - b);
+  const xToIdx = new Map(xValues.map((x, index) => [x, index]));
+  const newY = ySeries.map((values) =>
+    newX.map((x) => {
+      const index = xToIdx.get(x);
+      return index != null ? (values[index] ?? null) : null;
+    }),
+  );
+  return [newX, newY];
+}
+
+function alignBuckets(
+  buckets: PointBucket[],
+  maxPoints: number,
+  downsample: boolean,
+): { data: uPlot.AlignedData; sampleRatio: number } {
   const normalized = buckets.map((bucket) => {
-    let points = bucket.derivative ? derivative(bucket.points) : uniqueSortedPoints(bucket.points);
+    const rawPoints = bucket.derivative ? derivative(bucket.points) : uniqueSortedPoints(bucket.points);
+    let points = rawPoints;
     if (downsample && points.length > maxPoints) {
       points = downsampleMinMaxLast(points, maxPoints);
     }
-    return { bucket, points };
+    return { bucket, rawPoints, points };
   });
 
-  const xValues = Array.from(
+  const rawXCount = new Set(
+    normalized.flatMap((entry) => entry.rawPoints.map((point) => point.x)),
+  ).size;
+
+  let xValues = Array.from(
     new Set(normalized.flatMap((entry) => entry.points.map((point) => point.x))),
   ).sort((a, b) => a - b);
-  const xIndex = new Map(xValues.map((x, index) => [x, index]));
-  const ySeries = normalized.map((entry) => {
-    const values = Array.from({ length: xValues.length }, () => null as number | null);
-    for (const point of entry.points) {
-      const index = xIndex.get(point.x);
-      if (index != null) values[index] = point.y;
-    }
-    return values;
-  });
-  return [xValues, ...ySeries] as uPlot.AlignedData;
+
+  const pointMaps = normalized.map((entry) => new Map(entry.points.map((point) => [point.x, point.y])));
+  let ySeries = pointMaps.map((map) => xValues.map((x) => map.get(x) ?? null));
+
+  if (downsample && xValues.length > maxPoints) {
+    [xValues, ySeries] = downsampleSharedXAxis(xValues, ySeries, maxPoints);
+  }
+
+  const sampleRatio = rawXCount > 0 ? Math.min(1, xValues.length / rawXCount) : 1;
+  return { data: [xValues, ...ySeries] as uPlot.AlignedData, sampleRatio };
 }
 
-export function buildPlotDataset(events: MessageEvent[], config: PlotConfig): PlotDataset {
-  const warnings: string[] = [];
+export function buildPlotDataset(
+  events: MessageEvent[],
+  config: PlotConfig,
+  options: BuildPlotDatasetOptions = {},
+): PlotDataset {
+  const warnings: PlotDatasetWarning[] = [...(options.extraWarnings ?? [])];
   const buckets =
     config.xAxisMode === 'timestamp'
-      ? collectTimestampPoints(events, config, warnings)
+      ? collectTimestampPoints(events, config, warnings, options.logStart, options.logEnd)
       : config.xAxisMode === 'index'
         ? collectIndexPoints(events, config)
         : collectCustomPoints(events, config, config.xAxisMode === 'currentCustom', warnings);
 
+  assignBucketColors(buckets);
+
   const seriesBuckets = [...buckets.values()];
-  const perSeriesMax = Math.max(50, Math.floor(config.maxPoints / Math.max(1, seriesBuckets.length)));
-  const data = alignBuckets(seriesBuckets, perSeriesMax, config.downsampleMode === 'minMaxLast');
+  const shouldDownsample = options.forceDownsample === true || config.downsampleMode === 'minMaxLast';
+  const { data, sampleRatio } = alignBuckets(seriesBuckets, config.maxPoints, shouldDownsample);
   const pointCount = data.slice(1).reduce((sum, values) => {
     const arr = values as Array<number | null>;
     return sum + arr.filter((value) => value != null).length;
@@ -205,6 +320,7 @@ export function buildPlotDataset(events: MessageEvent[], config: PlotConfig): Pl
     series: seriesBuckets.map((bucket) => bucket.series),
     data,
     pointCount,
-    warnings: Array.from(new Set(warnings)),
+    sampleRatio,
+    warnings: Array.from(new Map(warnings.map((w) => [plotWarningKey(w), w])).values()),
   };
 }

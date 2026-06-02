@@ -44,6 +44,50 @@ export function readHeaderStamp(message: unknown): Time | undefined {
   return undefined;
 }
 
+/** True when a header stamp is present and plausibly within the log time window. */
+export function isHeaderStampInLogRange(
+  stamp: Time,
+  logStart: Time,
+  logEnd: Time,
+): boolean {
+  const stampSec = timeToSec(stamp);
+  if (!Number.isFinite(stampSec)) return false;
+  const startSec = timeToSec(logStart);
+  const endSec = timeToSec(logEnd);
+  const span = Math.max(endSec - startSec, 1);
+  const margin = span * 0.05;
+  return stampSec >= startSec - margin && stampSec <= endSec + margin;
+}
+
+/**
+ * Resolve the timestamp used for plotting. When header stamps fall outside the
+ * log window (common for unset `{sec:0,nsec:0}` stamps), fall back to receiveTime.
+ */
+export function resolvePlotEventTimestamp(
+  event: MessageEvent,
+  mode: TimestampMode,
+  logStart?: Time,
+  logEnd?: Time,
+): TimestampResolution {
+  const resolution = resolveEventTimestamp(event, mode);
+  if (
+    mode !== 'headerStamp' ||
+    resolution.source !== 'headerStamp' ||
+    logStart == null ||
+    logEnd == null
+  ) {
+    return resolution;
+  }
+  if (isHeaderStampInLogRange(resolution.time, logStart, logEnd)) {
+    return resolution;
+  }
+  return {
+    time: event.receiveTime,
+    source: 'receiveTime',
+    fallbackReason: 'missingHeaderStamp',
+  };
+}
+
 export function getEventTimestamp(event: MessageEvent, mode: TimestampMode): Time {
   if (mode === 'publishTime') {
     return event.publishTime ?? event.receiveTime;

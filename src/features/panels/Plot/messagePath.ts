@@ -132,7 +132,11 @@ function selectorItems(
     const index = names.indexOf(selector.name);
     return index < 0 || index >= value.length
       ? []
-      : [{ key: `${field}[${selector.name}]`, label: selector.name, value: value[index] }];
+      : [{
+          key: `${field}[${selector.name}]`,
+          label: `${field}[${index}] (${selector.name})`,
+          value: value[index],
+        }];
   }
 
   const start = Math.max(0, selector.start ?? 0);
@@ -141,7 +145,7 @@ function selectorItems(
   const out: Array<{ key: string; label: string; value: unknown }> = [];
   for (let i = start; i < end; i++) {
     const name = names[i];
-    const label = name ?? `${field}[${i}]`;
+    const label = name ? `${field}[${i}] (${name})` : `${field}[${i}]`;
     const key = name ? `${field}[${name}]` : `${field}[${i}]`;
     out.push({ key, label, value: value[i] });
   }

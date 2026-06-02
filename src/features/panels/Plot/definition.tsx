@@ -13,6 +13,7 @@ import {
 import { defaultPlotConfig, type PlotConfig, type PlotSeriesConfig } from './defaults';
 import { parsePlotConfig } from './schema';
 import { PlotPanelSettings } from './PlotPanelSettings';
+import { listPlotSchemaEntries } from './schemaRegistry/plotSchemaRegistry';
 
 const PlotPanel = lazy(async () => {
   const m = await import('./PlotPanel');
@@ -42,7 +43,7 @@ function parseFoxgloveSeries(config: FoxgloveConfig): Partial<PlotSeriesConfig>[
       color: typeof record.color === 'string' ? record.color : undefined,
       enabled: typeof record.enabled === 'boolean' ? record.enabled : true,
       timestampMode: record.timestampMethod === 'receiveTime' ? 'receiveTime' : 'headerStamp',
-      showLine: typeof record.showLine === 'boolean' ? record.showLine : true,
+      lineStyle: record.lineStyle === 'dashed' ? 'dashed' : 'solid',
       lineSize: typeof record.lineSize === 'number' ? record.lineSize : 1.5,
     }];
   });
@@ -81,7 +82,7 @@ function toConfig(state: FoxgloveAdapterState<PlotConfig>): FoxgloveConfig {
       color: series.color,
       label: series.label,
       timestampMethod: series.timestampMode,
-      showLine: series.showLine,
+      lineStyle: series.lineStyle,
       lineSize: series.lineSize,
     })),
   };
@@ -101,7 +102,12 @@ export const plotPanelDefinition: PanelDefinition<PlotConfig> = {
       <PlotPanel player={player} panelId={panelId} config={config} setConfig={setConfig} />
     </PanelSuspense>
   ),
-  schemaSupport: { supportedSchemas: [] },
+  schemaSupport: {
+    supportedSchemas: listPlotSchemaEntries().map((entry) => {
+      const [pkg, type] = entry.schemaSuffix.split('/');
+      return `${pkg}/msg/${type.charAt(0).toUpperCase()}${type.slice(1)}`;
+    }),
+  },
   renderSettings: (ctx) => <PlotPanelSettings {...ctx} />,
 };
 

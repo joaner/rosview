@@ -4,13 +4,25 @@ import {
   createPlotSeries,
   defaultPlotConfig,
   DEFAULT_PLOT_COLORS,
+  JOINT_STATE_FIELDS,
   MAX_PLOT_POINTS,
   MIN_PLOT_POINTS,
+  PLOT_LINE_STYLES,
   PLOT_X_AXIS_MODES,
+  type JointStateField,
   type PlotConfig,
+  type PlotLineStyle,
   type PlotSeriesConfig,
   type PlotXAxisMode,
 } from './defaults';
+
+function parseLineStyle(input: Record<string, unknown>, fallback: PlotLineStyle): PlotLineStyle {
+  if (PLOT_LINE_STYLES.includes(input.lineStyle as PlotLineStyle)) {
+    return input.lineStyle as PlotLineStyle;
+  }
+  if (input.showLine === false) return 'dashed';
+  return fallback;
+}
 
 function parseTimestampMode(value: unknown, fallback: TimestampMode): TimestampMode {
   return value === 'receiveTime' || value === 'publishTime' || value === 'headerStamp'
@@ -44,9 +56,22 @@ function parseSeries(input: unknown, index: number): PlotSeriesConfig {
     color: typeof input.color === 'string' && input.color.length > 0 ? input.color : base.color,
     enabled: typeof input.enabled === 'boolean' ? input.enabled : base.enabled,
     timestampMode: parseTimestampMode(input.timestampMode, base.timestampMode),
-    showLine: typeof input.showLine === 'boolean' ? input.showLine : base.showLine,
+    lineStyle: parseLineStyle(input, base.lineStyle),
     lineSize: clampNumber(input.lineSize, base.lineSize, 0.5, 8),
   });
+}
+
+function parseJointStateFields(value: unknown, fallback: JointStateField[]): JointStateField[] {
+  if (!Array.isArray(value)) return fallback;
+  const fields = value.filter((item): item is JointStateField =>
+    typeof item === 'string' && JOINT_STATE_FIELDS.includes(item as JointStateField),
+  );
+  return fields.length > 0 ? fields : fallback;
+}
+
+function parseHiddenLegendKeys(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is string => typeof item === 'string' && item.length > 0);
 }
 
 export function parsePlotConfig(input: unknown): PlotConfig {
@@ -64,5 +89,13 @@ export function parsePlotConfig(input: unknown): PlotConfig {
     followingViewWidthSec: clampNumber(input.followingViewWidthSec, base.followingViewWidthSec, 0, 86_400),
     syncX: typeof input.syncX === 'boolean' ? input.syncX : base.syncX,
     downsampleMode: parseDownsampleMode(input.downsampleMode, base.downsampleMode),
+    nonIndexedMaxMessages: clampNumber(
+      input.nonIndexedMaxMessages,
+      base.nonIndexedMaxMessages,
+      1000,
+      MAX_PLOT_POINTS,
+    ),
+    jointStateFields: parseJointStateFields(input.jointStateFields, base.jointStateFields),
+    hiddenLegendKeys: parseHiddenLegendKeys(input.hiddenLegendKeys),
   };
 }

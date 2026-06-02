@@ -26,11 +26,11 @@ describe('extractPlotPathValues', () => {
   it('maps JointState arrays by name', () => {
     const message = { name: ['shoulder', 'elbow'], position: [0.1, 0.2] };
     expect(extractPlotPathValues(message, 'position[:]')).toEqual([
-      { key: 'position[shoulder]', label: 'shoulder', value: 0.1 },
-      { key: 'position[elbow]', label: 'elbow', value: 0.2 },
+      { key: 'position[shoulder]', label: 'position[0] (shoulder)', value: 0.1 },
+      { key: 'position[elbow]', label: 'position[1] (elbow)', value: 0.2 },
     ]);
     expect(extractPlotPathValues(message, 'position[elbow]')).toEqual([
-      { key: 'position[elbow]', label: 'elbow', value: 0.2 },
+      { key: 'position[elbow]', label: 'position[1] (elbow)', value: 0.2 },
     ]);
   });
 
