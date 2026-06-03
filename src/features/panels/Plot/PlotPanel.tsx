@@ -14,6 +14,7 @@ import { secToTime } from './plotChart';
 import { applyJointStateFieldsToConfig, pruneHiddenLegendKeysForDataset } from './plotConfigActions';
 import {
   buildTopicByName,
+  hasConfiguredPlotPaths,
   hasEnabledPlotPaths,
   isPrimaryJointState,
   selectActivePlotTopics,
@@ -90,7 +91,8 @@ export const PlotPanel: React.FC<PlotPanelProps> = ({ player, panelId, config, s
     () => selectActivePlotTopics(config, topicByName),
     [config, topicByName],
   );
-  const hasPlotPaths = useMemo(() => hasEnabledPlotPaths(config), [config]);
+  const hasPlotPaths = useMemo(() => hasConfiguredPlotPaths(config), [config]);
+  const hasEnabledSeries = useMemo(() => hasEnabledPlotPaths(config), [config]);
   const primary = selectPrimarySeries(config);
   const showJointStateFields = isPrimaryJointState(config, topicByName);
 
@@ -191,7 +193,7 @@ export const PlotPanel: React.FC<PlotPanelProps> = ({ player, panelId, config, s
     ? formatPlotDatasetWarning(primaryWarning, formatMessage)
     : undefined;
 
-  const hasSeries = activeTopics.length > 0 && hasPlotPaths;
+  const hasSeries = activeTopics.length > 0 && hasEnabledSeries;
   const status = detectingTopic
     ? formatMessage({ id: 'panels.plot.status.detectingPaths' })
     : loading
