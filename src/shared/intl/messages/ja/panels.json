@@ -50,6 +50,8 @@
   "panels.plot.settings.enum.xAxis.index": "インデックス",
   "panels.plot.settings.enum.xAxis.custom": "カスタム X/Y",
   "panels.plot.settings.enum.xAxis.currentCustom": "現在のカスタム X/Y",
+  "panels.plot.settings.enum.xAxis.requiresArrayHint": "（配列パスが必要）",
+  "panels.plot.settings.enum.xAxis.requiresXPathHint": "（X パスが必要）",
   "panels.plot.settings.enum.timestamp.headerStamp": "ヘッダースタンプ",
   "panels.plot.settings.enum.timestamp.receiveTime": "受信時刻",
   "panels.plot.settings.enum.timestamp.publishTime": "公開時刻",
