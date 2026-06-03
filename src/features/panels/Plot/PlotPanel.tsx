@@ -134,6 +134,7 @@ export const PlotPanel: React.FC<PlotPanelProps> = ({ player, panelId, config, s
     hiddenSeries,
     xRange,
     logStart: startTime,
+    loading,
   });
 
   useEffect(() => {
