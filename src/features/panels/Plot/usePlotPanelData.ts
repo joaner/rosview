@@ -62,7 +62,9 @@ export function usePlotPanelData({
   const enabledSeriesKey = useMemo(() => plotEnabledSeriesKey(config), [config]);
   const enabledSeriesIds = useMemo(() => plotEnabledSeriesIds(config), [config]);
   const enabledSeriesIdsRef = useRef(enabledSeriesIds);
-  enabledSeriesIdsRef.current = enabledSeriesIds;
+  useEffect(() => {
+    enabledSeriesIdsRef.current = enabledSeriesIds;
+  }, [enabledSeriesIds]);
   const accumulatorRef = useRef<PlotDatasetAccumulator | null>(null);
 
   const progressRef = useRef<PlotRangeReadProgress | null>(null);
@@ -208,7 +210,6 @@ export function usePlotPanelData({
     const accumulator = accumulatorRef.current;
     if (!accumulator) return;
     setDataset(accumulator.buildDataset(enabledSeriesIdsRef.current));
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- enabledSeriesKey is the stable trigger
   }, [enabledSeriesKey]);
 
   return { dataset, loading, progress, error };

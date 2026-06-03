@@ -145,7 +145,9 @@ export function usePlotChart({
   const seriesSignaturesRef = useRef<SeriesSignature[]>([]);
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
   const loadingRef = useRef(!!loading);
-  loadingRef.current = !!loading;
+  useEffect(() => {
+    loadingRef.current = !!loading;
+  }, [loading]);
 
   const destroyChart = useCallback(() => {
     resizeObserverRef.current?.disconnect();

@@ -27,7 +27,7 @@ describe('SettingsNumber', () => {
   function getInput(): HTMLInputElement {
     const input = container.querySelector('input');
     if (!input) throw new Error('input not found');
-    return input as HTMLInputElement;
+    return input;
   }
 
   function fireChange(input: HTMLInputElement, value: string): void {
@@ -78,7 +78,9 @@ describe('SettingsNumber', () => {
     // No commit while empty
     expect(onChange).not.toHaveBeenCalled();
     // Blur reverts display to 5 (last external value)
-    act(() => input.dispatchEvent(new Event('blur', { bubbles: true })));
+    act(() => {
+      input.dispatchEvent(new Event('blur', { bubbles: true }));
+    });
     expect(input.value).toBe('5');
   });
 
@@ -133,7 +135,7 @@ describe('SettingsNumber', () => {
       );
     });
     // already at max, should not exceed
-    const last = onChange.mock.calls.at(-1)?.[0];
+    const last = onChange.mock.calls.at(-1)?.[0] as number | undefined;
     expect(last).toBeLessThanOrEqual(5);
   });
 

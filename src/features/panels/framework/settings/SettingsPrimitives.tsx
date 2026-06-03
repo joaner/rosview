@@ -256,11 +256,11 @@ export const SettingsNumber: React.FC<NumberInputProps> = ({
         event.preventDefault();
         const { nextText } = commitFromText(text);
         setText(nextText);
-        (event.currentTarget as HTMLInputElement).blur();
+        event.currentTarget.blur();
       } else if (event.key === 'Escape') {
         event.preventDefault();
         setText(formatNumber(externalValueRef.current));
-        (event.currentTarget as HTMLInputElement).blur();
+        event.currentTarget.blur();
       } else if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
         const stepSize =
           typeof step === 'number' && step > 0 ? step : 1;
