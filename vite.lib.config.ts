@@ -77,6 +77,8 @@ export default defineConfig({
   build: {
     target: 'esnext',
     outDir: 'dist-lib',
+    /** Flat dist-lib: WASM/HDF5 assets alongside chunks (no dist-lib/assets/). */
+    assetsDir: '.',
     /** Library + worker chunks: no .map in dist-lib (smaller publish / vendored copy). */
     sourcemap: false,
     copyPublicDir: false,
@@ -103,7 +105,7 @@ export default defineConfig({
       output: {
         assetFileNames: (assetInfo) => {
           if (assetInfo.name?.endsWith('.css')) return 'rosview.css';
-          return assetInfo.name || '[name][extname]';
+          return '[name]-[hash][extname]';
         },
       },
     },

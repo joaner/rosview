@@ -28,7 +28,7 @@ import { parseJointStatePlotConfig } from './schema';
 import { JointStatePlotPanelSettings } from './JointStatePlotPanelSettings';
 
 const JointStatePlotComponent = lazy(async () => {
-  const m = await import('./Component');
+  const m = await import('./JointStatePlotPanel');
   return { default: m.JointStatePlotComponent };
 });
 
@@ -269,6 +269,7 @@ const JointStatePanelWrapper: React.FC<JointStatePanelProps> = ({
 
 export const jointStatePlotDefinition: PanelDefinition<JointStatePlotConfig> = {
   type: 'JointStatePlot',
+  hideFromPanelPicker: true,
   defaultTitle: 'JointState Plot',
   createDefaultConfig: defaultJointStatePlotConfig,
   configSchema: { version: 1, parse: parseJointStatePlotConfig },

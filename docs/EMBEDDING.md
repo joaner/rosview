@@ -348,9 +348,9 @@ export async function GET(req: NextRequest) {
 }
 ```
 
-> **About `db3`:** ROSView does **not** support remote streaming of db3 (SQLite needs random access to the whole database). Download the db3 file in full as a `File` on the client and pass it via the `file` / `files` prop. mcap / bag can be streamed directly through the Range route above.
+> **About `db3`:** Like the other formats, db3 supports both a **local `File`** and a **remote URL** — just point `url` at the Range route above. However, because SQLite needs random access to the whole database, db3 **cannot be Range-streamed** the way mcap / bag are: when given a db3 URL, ROSView **downloads the file in full inside the Worker** (with download progress) before opening it. For very large db3 files, prefer converting to MCAP for true streaming. You no longer need to download the db3 as a `File` yourself on the host side.
 
-> **Version requirement:** Use **`@ioai/rosview` ≥ 1.3.5** (which depends on `@ioai/wasm-zstd` ≥ 1.1.2). 1.3.5 fixes the Turbopack inline-worker regression from 1.3.4 (`Failed to resolve module specifier './wasm-zstd-*.js'`, caused by the inline worker running from a `blob:` URL and unable to resolve the zstd glue's relative dynamic import). `@ioai/wasm-zstd` 1.1.2 statically inlines the glue into the worker, fixing this for good.
+> **Version requirement:** Use **`@ioai/rosview` ≥ 1.3.5** (which depends on `@ioai/wasm-zstd` ≥ 1.1.2). 1.3.5 adds remote-URL loading for db3 and fixes the Turbopack inline-worker regression from 1.3.4 (`Failed to resolve module specifier './wasm-zstd-*.js'`, caused by the inline worker running from a `blob:` URL and unable to resolve the zstd glue's relative dynamic import). `@ioai/wasm-zstd` 1.1.2 statically inlines the glue into the worker, fixing this for good.
 
 ---
 

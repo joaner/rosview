@@ -246,6 +246,107 @@ describe('IterablePlayer high-frequency lane', () => {
   });
 });
 
+describe('IterablePlayer range reads', () => {
+  it('streams range messages in cursor batches', async () => {
+    const first = makeImageMessageAt(1);
+    const second = makeImageMessageAt(2);
+    const third = makeImageMessageAt(3);
+    const source = makeSource([]);
+    const cursor = {
+      nextBatch: vi
+        .fn()
+        .mockResolvedValueOnce([first, second])
+        .mockResolvedValueOnce([third])
+        .mockResolvedValueOnce([]),
+      end: vi.fn(async () => undefined),
+    };
+    vi.mocked(source.getMessageCursor).mockResolvedValue(cursor as never);
+    const player = new IterablePlayer(source);
+
+    try {
+      await player.initialize({});
+      const batches: MessageEvent[][] = [];
+      for await (const batch of player.streamMessagesInTimeRange({
+        start: { sec: 0, nsec: 0 },
+        end: { sec: 5, nsec: 0 },
+        topics: [TOPIC],
+      })) {
+        batches.push(batch);
+      }
+
+      expect(batches).toEqual([[first, second], [third]]);
+      expect(source.getMessageCursor).toHaveBeenCalledWith({
+        startTime: { sec: 0, nsec: 0 },
+        endTime: { sec: 5, nsec: 0 },
+        topics: [TOPIC],
+      });
+      expect(cursor.end).toHaveBeenCalledTimes(1);
+    } finally {
+      player.close();
+    }
+  });
+
+  it('keeps getMessagesInTimeRange compatible with streamed results', async () => {
+    const first = makeImageMessageAt(1);
+    const outside = makeImageMessageAt(9);
+    const second = makeImageMessageAt(2);
+    const source = makeSource([]);
+    const cursor = {
+      nextBatch: vi
+        .fn()
+        .mockResolvedValueOnce([first, outside])
+        .mockResolvedValueOnce([second])
+        .mockResolvedValueOnce([]),
+      end: vi.fn(async () => undefined),
+    };
+    vi.mocked(source.getMessageCursor).mockResolvedValue(cursor as never);
+    const player = new IterablePlayer(source);
+
+    try {
+      await player.initialize({});
+      await expect(player.getMessagesInTimeRange({
+        start: { sec: 0, nsec: 0 },
+        end: { sec: 5, nsec: 0 },
+        topics: [TOPIC],
+      })).resolves.toEqual([first, second]);
+      expect(cursor.end).toHaveBeenCalledTimes(1);
+    } finally {
+      player.close();
+    }
+  });
+
+  it('stops streamed range reads at maxMessages', async () => {
+    const first = makeImageMessageAt(1);
+    const second = makeImageMessageAt(2);
+    const third = makeImageMessageAt(3);
+    const source = makeSource([]);
+    const cursor = {
+      nextBatch: vi.fn().mockResolvedValueOnce([first, second, third]),
+      end: vi.fn(async () => undefined),
+    };
+    vi.mocked(source.getMessageCursor).mockResolvedValue(cursor as never);
+    const player = new IterablePlayer(source);
+
+    try {
+      await player.initialize({});
+      const batches: MessageEvent[][] = [];
+      for await (const batch of player.streamMessagesInTimeRange({
+        start: { sec: 0, nsec: 0 },
+        end: { sec: 5, nsec: 0 },
+        topics: [TOPIC],
+        maxMessages: 2,
+      })) {
+        batches.push(batch);
+      }
+
+      expect(batches).toEqual([[first, second]]);
+      expect(cursor.end).toHaveBeenCalledTimes(1);
+    } finally {
+      player.close();
+    }
+  });
+});
+
 describe('IterablePlayer playback clock', () => {
   it('emits the current time immediately when subscribing', async () => {
     const source = makeSource([]);

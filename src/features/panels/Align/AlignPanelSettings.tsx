@@ -8,7 +8,7 @@ import {
   SettingsTextArea,
 } from '../framework/settings';
 import type { AlignConfig } from './defaults';
-import type { AlignPlotTimeMode } from '../align-core/alignTimeUtils';
+import type { AlignPlotTimeMode } from './core/alignTimeUtils';
 
 export function AlignPanelSettings({
   config,

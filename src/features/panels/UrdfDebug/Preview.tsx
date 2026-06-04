@@ -13,8 +13,8 @@ import {
   type MeshLoadProgress,
   type MeshUpAxis,
   type RobotRenderable,
-} from '../ThreeD/foxglove-core/renderables';
-import type { JointStateMsg } from '../ThreeD/foxglove-core/types';
+} from '../ThreeD/core/renderables';
+import type { JointStateMsg } from '../ThreeD/core/types';
 import {
   countVisibleFrameObjects,
   type UrdfPreviewBuildResult,

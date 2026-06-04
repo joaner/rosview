@@ -6,7 +6,7 @@ import { parseRawMessagesConfig } from './schema';
 import { RawMessagesPanelSettings } from './RawMessagesPanelSettings';
 
 const RawMessagesPanel = lazy(async () => {
-  const m = await import('./Component');
+  const m = await import('./RawMessagesPanel');
   return { default: m.RawMessagesPanel };
 });
 

@@ -11,7 +11,7 @@ import { parseAudioConfig } from './schema';
 import { AudioPanelSettings } from './AudioPanelSettings';
 
 const AudioPanel = lazy(async () => {
-  const m = await import('./Component');
+  const m = await import('./AudioPanel');
   return { default: m.AudioPanel };
 });
 

@@ -1,4 +1,4 @@
-import type { ImageColorMode } from './image-core/imageColorMode';
+import type { ImageColorMode } from './core/imageColorMode';
 import { isRecord } from '../framework/types';
 import { defaultImageConfig, type ImageConfig } from './defaults';
 

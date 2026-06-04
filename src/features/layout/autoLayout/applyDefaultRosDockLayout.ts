@@ -16,7 +16,7 @@ import {
   type FoxgloveMosaicNode,
 } from '@/core/preferences/foxgloveLayout';
 import { planColorDepthCameraRows } from '@/features/layout/autoLayout/planRosImageGrid';
-import { heuristicAudioInfoTopics } from '@/features/panels/Audio/audio-core/resolveAudioInfo';
+import { heuristicAudioInfoTopics } from '@/features/panels/Audio/core/resolveAudioInfo';
 import { getPanelDefinition } from '@/features/panels/registry';
 import { isAudioCommonInfoSchema, isJointStateSchema, isRawAudioSchema, normalizeRosSchemaName } from '@/shared/ros/rosMessageTypes';
 import { pickDefaultRawMessagesTopic } from '@/features/layout/autoLayout/pickDefaultRawMessagesTopic';

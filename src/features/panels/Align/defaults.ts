@@ -1,4 +1,4 @@
-import type { AlignPlotTimeMode } from '../align-core/alignTimeUtils';
+import type { AlignPlotTimeMode } from './core/alignTimeUtils';
 
 export interface AlignConfig {
   /** Empty ⇒ all image topics from the dataset. */

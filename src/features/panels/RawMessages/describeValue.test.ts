@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { describeValue } from './Component';
+import { describeValue } from './RawMessagesPanel';
 
 describe('describeValue', () => {
   it('shows hex preview for small binary buffers', () => {

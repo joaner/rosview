@@ -1,6 +1,6 @@
 import { isRecord } from '../framework/types';
 import { defaultAlignConfig, type AlignConfig } from './defaults';
-import type { AlignPlotTimeMode } from '../align-core/alignTimeUtils';
+import type { AlignPlotTimeMode } from './core/alignTimeUtils';
 
 function clampNumber(value: unknown, fallback: number, min: number, max: number): number {
   if (typeof value !== 'number' || !Number.isFinite(value)) {

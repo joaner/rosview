@@ -6,7 +6,7 @@ import { parseTopicGraphConfig } from './schema';
 import { TopicGraphPanelSettings } from './TopicGraphPanelSettings';
 
 const TopicGraphPanel = lazy(async () => {
-  const m = await import('./Component');
+  const m = await import('./TopicGraphPanel');
   return { default: m.TopicGraphPanel };
 });
 

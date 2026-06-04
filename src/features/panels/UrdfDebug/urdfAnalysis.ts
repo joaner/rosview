@@ -1,5 +1,5 @@
-import { parseUrdf } from '../ThreeD/foxglove-core/urdf';
-import type { UrdfJoint } from '../ThreeD/foxglove-core/types';
+import { parseUrdf } from '../ThreeD/core/urdf';
+import type { UrdfJoint } from '../ThreeD/core/types';
 import { applyUrdfVisualCorrection } from './urdfVisualCorrection';
 
 export { TELEOP_ROTATE_MESH_RPY, applyUrdfVisualCorrection } from './urdfVisualCorrection';

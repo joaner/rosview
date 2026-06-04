@@ -375,6 +375,7 @@ export class Hdf5IterableSource implements IIterableSource {
       // same rhythm the data was produced, so each frame renders exactly
       // once per tick and the PlaybackBar's FPS control reflects the source.
       preferredSamplingFps: 1 / this._frameDtSec,
+      randomAccessByTopic: true,
     });
   }
 

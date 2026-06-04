@@ -8,6 +8,12 @@ export interface GetMessagesInTimeRangeArgs {
   topics: string[];
 }
 
+export interface StreamMessagesInTimeRangeArgs extends GetMessagesInTimeRangeArgs {
+  maxMessages?: number;
+  batchSize?: number;
+  batchWallTimeMs?: number;
+}
+
 export type Unsubscribe = () => void;
 
 /** Random-access byte reader for ROS bag-like sources. */
@@ -73,6 +79,8 @@ export interface PlayerState {
     isLooping: boolean;
     speed: number;
     problems: PlayerProblem[];
+    /** Whether the source supports efficient per-topic random access reads. */
+    randomAccessByTopic?: boolean;
   };
 }
 
@@ -115,6 +123,11 @@ export interface Player {
    * Implemented by {@link IterablePlayer}; absent on other player stubs.
    */
   getMessagesInTimeRange?(args: GetMessagesInTimeRangeArgs): Promise<MessageEvent[]>;
+  /**
+   * Stream deserialized messages in `[start, end]` by receive time. Batches are yielded as soon
+   * as the source cursor produces them so callers can render partial results.
+   */
+  streamMessagesInTimeRange?(args: StreamMessagesInTimeRangeArgs): AsyncIterable<MessageEvent[]>;
   startDataQualityScan?(): void;
   setSpeed(speed: number): void;
   setSamplingFps(fps: number): void;

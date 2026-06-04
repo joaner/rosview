@@ -149,6 +149,7 @@ export class McapIndexedIterableSource implements IIterableSource {
       publishersByTopic,
       topicStats,
       problems,
+      randomAccessByTopic: true,
     });
   }
 
