@@ -1,9 +1,11 @@
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Eye, EyeOff } from 'lucide-react';
 import { useIntl } from 'react-intl';
 import { useShallow } from 'zustand/react/shallow';
 import type { MessagePipelineState } from '@/core/pipeline/store';
 import { useMessagePipeline } from '@/core/pipeline/useMessagePipeline';
+import type { Time, TopicInfo } from '@/core/types/ros';
+import { isJointStateSchema } from '@/shared/ros/rosMessageTypes';
 import type { PanelSettingsContext } from '../framework/types';
 import {
   SettingsField,
@@ -22,10 +24,12 @@ import {
   type JointStateField,
   type PlotConfig,
   type PlotLineStyle,
+  type PlotSeriesConfig,
   type PlotXAxisMode,
 } from './defaults';
 import { exportPlotCsvFromConfig } from './exportCsv';
-import { isArrayLikePlotPath } from './messagePath';
+import { isArrayLikePlotPath, splitPlotPathList } from './messagePath';
+import { detectPlotPaths } from './autoDetect';
 import { filterPlottableTopics, isPlottableSchema } from './plottableSchemas';
 import {
   addPlotSeriesToConfig,
@@ -35,7 +39,179 @@ import {
 } from './plotConfigActions';
 import { buildTopicByName } from './plotConfigSelectors';
 import { PlotLegendSettings } from './PlotLegendSettings';
+import { sampleTopicMessage } from './plotTopicService';
 import { usePlotTopicDetection } from './usePlotTopicDetection';
+
+interface FieldTreeNode {
+  label: string;
+  path?: string;
+  children: FieldTreeNode[];
+}
+
+function pathSegments(path: string): string[] {
+  return path
+    .split('.')
+    .map((segment) => segment.trim())
+    .filter(Boolean);
+}
+
+function buildFieldTree(paths: string[]): FieldTreeNode[] {
+  const root: FieldTreeNode = { label: '', children: [] };
+
+  for (const path of paths) {
+    let cursor = root;
+    const segments = pathSegments(path);
+    for (let i = 0; i < segments.length; i++) {
+      const label = segments[i] ?? '';
+      let next = cursor.children.find((child) => child.label === label);
+      if (!next) {
+        next = { label, children: [] };
+        cursor.children.push(next);
+      }
+      if (i === segments.length - 1) next.path = path;
+      cursor = next;
+    }
+  }
+
+  const sortChildren = (node: FieldTreeNode) => {
+    node.children.sort((a, b) => a.label.localeCompare(b.label));
+    node.children.forEach(sortChildren);
+  };
+  sortChildren(root);
+  return root.children;
+}
+
+function togglePath(path: string, currentPath: string): string {
+  const selected = new Set(splitPlotPathList(currentPath));
+  if (selected.has(path)) {
+    selected.delete(path);
+  } else {
+    selected.add(path);
+  }
+  return Array.from(selected).join(',');
+}
+
+function FieldTreeRows({
+  nodes,
+  selected,
+  onToggle,
+  depth = 0,
+}: {
+  nodes: FieldTreeNode[];
+  selected: Set<string>;
+  onToggle: (path: string) => void;
+  depth?: number;
+}): React.ReactNode {
+  return nodes.map((node) => (
+    <div key={`${depth}:${node.label}:${node.path ?? ''}`}>
+      <div
+        className="flex min-h-6 items-center gap-1 rounded px-1 text-[11px] hover:bg-accent/60"
+        style={{ paddingLeft: `${depth * 12 + 4}px` }}
+      >
+        {node.path ? (
+          <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-1.5">
+            <input
+              type="checkbox"
+              className="h-3 w-3"
+              checked={selected.has(node.path)}
+              onChange={() => onToggle(node.path ?? '')}
+            />
+            <span className="truncate font-mono">{node.label}</span>
+          </label>
+        ) : (
+          <span className="truncate text-muted-foreground">{node.label}</span>
+        )}
+      </div>
+      {node.children.length > 0 && (
+        <FieldTreeRows nodes={node.children} selected={selected} onToggle={onToggle} depth={depth + 1} />
+      )}
+    </div>
+  ));
+}
+
+function TopicFieldTree({
+  player,
+  series,
+  topicByName,
+  startTime,
+  endTime,
+  jointStateFields,
+  onPathChange,
+}: {
+  player: PanelSettingsContext<PlotConfig>['player'];
+  series: PlotSeriesConfig;
+  topicByName: ReadonlyMap<string, TopicInfo>;
+  startTime?: Time;
+  endTime?: Time;
+  jointStateFields: JointStateField[];
+  onPathChange: (path: string) => void;
+}): React.ReactNode {
+  const { formatMessage } = useIntl();
+  const schemaName = series.topic ? topicByName.get(series.topic)?.type : undefined;
+  const [sample, setSample] = useState<unknown>();
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    setSample(undefined);
+    if (!series.topic || !startTime || !endTime) return;
+
+    setLoading(true);
+    void sampleTopicMessage({ player, topic: series.topic, startTime, endTime })
+      .then((message) => {
+        if (!cancelled) setSample(message);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [endTime, player, series.topic, startTime]);
+
+  const fields = useMemo(() => {
+    if (!schemaName) return [];
+    return detectPlotPaths({
+      schemaName,
+      sample,
+      jointStateFields: isJointStateSchema(schemaName) ? jointStateFields : undefined,
+    });
+  }, [jointStateFields, sample, schemaName]);
+
+  const selected = useMemo(() => new Set(splitPlotPathList(series.path)), [series.path]);
+  const tree = useMemo(() => buildFieldTree(fields.map((field) => field.path)), [fields]);
+
+  if (!series.topic) return null;
+
+  return (
+    <SettingsField
+      label={formatMessage({ id: 'panels.plot.settings.field.topicFields', defaultMessage: 'Topic fields' })}
+      help={formatMessage({
+        id: 'panels.plot.settings.field.topicFields.help',
+        defaultMessage: 'Select numeric message fields to plot.',
+      })}
+    >
+      <div className="max-h-48 overflow-auto rounded border border-border bg-background p-1">
+        {loading && tree.length === 0 ? (
+          <div className="px-2 py-1 text-[11px] text-muted-foreground">
+            {formatMessage({ id: 'panels.plot.settings.field.topicFields.loading', defaultMessage: 'Detecting fields…' })}
+          </div>
+        ) : tree.length === 0 ? (
+          <div className="px-2 py-1 text-[11px] text-muted-foreground">
+            {formatMessage({ id: 'panels.plot.settings.field.topicFields.empty', defaultMessage: 'No numeric fields detected.' })}
+          </div>
+        ) : (
+          <FieldTreeRows
+            nodes={tree}
+            selected={selected}
+            onToggle={(path) => onPathChange(togglePath(path, series.path))}
+          />
+        )}
+      </div>
+    </SettingsField>
+  );
+}
 
 export function PlotPanelSettings({
   config,
@@ -295,6 +471,17 @@ export function PlotPanelSettings({
                 placeholder="/topic"
               />
             </SettingsField>
+            <TopicFieldTree
+              player={player}
+              series={series}
+              topicByName={topicByName}
+              startTime={startTime}
+              endTime={endTime}
+              jointStateFields={config.jointStateFields}
+              onPathChange={(path) =>
+                setConfig((prev) => updateSeriesInConfig(prev, series.id, { path }))
+              }
+            />
             <SettingsField
               label={formatMessage({ id: 'panels.plot.settings.field.yPath' })}
               help={formatMessage({ id: 'panels.plot.settings.field.yPath.help' })}

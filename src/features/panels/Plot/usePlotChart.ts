@@ -10,8 +10,11 @@ import {
   buildPlotSeriesOption,
   createPlotUplotOptions,
   mountPlotChart,
+  panScale,
   readPlotChartColors,
   resetPlotYScaleLock,
+  zoomScaleAroundCursor,
+  type PlotScaleRange,
 } from './plotChart';
 
 export interface UsePlotChartArgs {
@@ -30,6 +33,17 @@ export interface UsePlotChartArgs {
    * appending.
    */
   loading?: boolean;
+  onViewportStateChange?: (state: PlotViewportState) => void;
+}
+
+export interface PlotViewportState {
+  x: boolean;
+  y: boolean;
+}
+
+export interface UsePlotChartResult {
+  chartRef: RefObject<uPlot | null>;
+  resetViewport: () => void;
 }
 
 interface SeriesSignature {
@@ -190,6 +204,16 @@ export function pinPlotXScaleToLogRange(
   chart.setScale('x', xRange);
 }
 
+export function hasManualPlotViewport(state: PlotViewportState): boolean {
+  return state.x || state.y;
+}
+
+export function plotInteractionAxes(event: Pick<WheelEvent | PointerEvent, 'shiftKey' | 'ctrlKey' | 'metaKey'>): Array<'x' | 'y'> {
+  if (event.ctrlKey || event.metaKey) return ['x', 'y'];
+  if (event.shiftKey) return ['y'];
+  return ['x'];
+}
+
 export function usePlotChart({
   containerRef,
   player,
@@ -200,7 +224,8 @@ export function usePlotChart({
   xRange,
   logStart,
   loading,
-}: UsePlotChartArgs): RefObject<uPlot | null> {
+  onViewportStateChange,
+}: UsePlotChartArgs): UsePlotChartResult {
   const uplotRef = useRef<uPlot | null>(null);
   const currentTimeSecRef = useRef<number | undefined>(
     (() => {
@@ -213,12 +238,166 @@ export function usePlotChart({
   const xAxisModeRef = useRef(config.xAxisMode);
   const seriesSignaturesRef = useRef<SeriesSignature[]>([]);
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
+  const interactionCleanupRef = useRef<(() => void) | null>(null);
   const loadingRef = useRef(!!loading);
+  const manualViewportRef = useRef<PlotViewportState>({ x: false, y: false });
+  const xRangeRef = useRef(xRange);
+  const onViewportStateChangeRef = useRef(onViewportStateChange);
   useEffect(() => {
     loadingRef.current = !!loading;
   }, [loading]);
+  useEffect(() => {
+    xRangeRef.current = xRange;
+  }, [xRange]);
+  useEffect(() => {
+    onViewportStateChangeRef.current = onViewportStateChange;
+  }, [onViewportStateChange]);
+
+  const notifyViewportState = useCallback(() => {
+    onViewportStateChangeRef.current?.({ ...manualViewportRef.current });
+  }, []);
+
+  const markManualViewport = useCallback((axis: 'x' | 'y') => {
+    const prev = manualViewportRef.current;
+    if (prev[axis]) return;
+    manualViewportRef.current = { ...prev, [axis]: true };
+    notifyViewportState();
+  }, [notifyViewportState]);
+
+  const resetViewport = useCallback(() => {
+    const chart = uplotRef.current;
+    manualViewportRef.current = { x: false, y: false };
+    notifyViewportState();
+    if (!chart) return;
+
+    resetPlotYScaleLock(chart);
+    chart.setData(chart.data, true);
+
+    if (config.xAxisMode === 'timestamp' && config.followingViewWidthSec > 0) {
+      const end = currentTimeSecRef.current;
+      if (end != null && Number.isFinite(end)) {
+        chart.setScale('x', { min: end - config.followingViewWidthSec, max: end });
+      }
+    } else if (xRangeRef.current) {
+      chart.setScale('x', xRangeRef.current);
+    }
+  }, [config.followingViewWidthSec, config.xAxisMode, notifyViewportState]);
+
+  const attachChartInteractions = useCallback((chart: uPlot) => {
+    const over = chart.over;
+    let drag:
+      | {
+          pointerId: number;
+          clientX: number;
+          clientY: number;
+          scales: Partial<Record<'x' | 'y', PlotScaleRange>>;
+          axes: Array<'x' | 'y'>;
+          moved: boolean;
+        }
+      | null = null;
+
+    const currentScale = (axis: 'x' | 'y'): PlotScaleRange | undefined => {
+      const min = chart.scales[axis].min;
+      const max = chart.scales[axis].max;
+      return typeof min === 'number' && typeof max === 'number' ? { min, max } : undefined;
+    };
+
+    const setManualScale = (axis: 'x' | 'y', scale: PlotScaleRange) => {
+      markManualViewport(axis);
+      chart.setScale(axis, scale);
+    };
+
+    const onWheel = (event: WheelEvent) => {
+      const axes = plotInteractionAxes(event);
+      event.preventDefault();
+      const rect = over.getBoundingClientRect();
+      const factor = event.deltaY > 0 ? 1.18 : 1 / 1.18;
+      if (axes.includes('x')) {
+        const scale = currentScale('x');
+        if (scale) {
+          const cursorVal = chart.posToVal(event.clientX - rect.left, 'x');
+          setManualScale('x', zoomScaleAroundCursor(scale, cursorVal, factor, xRangeRef.current));
+        }
+      }
+      if (axes.includes('y')) {
+        const scale = currentScale('y');
+        if (scale) {
+          const cursorVal = chart.posToVal(event.clientY - rect.top, 'y');
+          setManualScale('y', zoomScaleAroundCursor(scale, cursorVal, factor));
+        }
+      }
+    };
+
+    const onPointerDown = (event: PointerEvent) => {
+      if (event.button !== 0 || event.altKey) return;
+      const axes = plotInteractionAxes(event);
+      const scales = Object.fromEntries(
+        axes.flatMap((axis) => {
+          const scale = currentScale(axis);
+          return scale ? [[axis, scale]] : [];
+        }),
+      ) as Partial<Record<'x' | 'y', PlotScaleRange>>;
+      if (Object.keys(scales).length === 0) return;
+      drag = {
+        pointerId: event.pointerId,
+        clientX: event.clientX,
+        clientY: event.clientY,
+        scales,
+        axes,
+        moved: false,
+      };
+      over.setPointerCapture(event.pointerId);
+      over.style.cursor = 'grabbing';
+      event.preventDefault();
+    };
+
+    const onPointerMove = (event: PointerEvent) => {
+      if (!drag || drag.pointerId !== event.pointerId) return;
+      const deltaPx = event.clientX - drag.clientX;
+      const deltaY = event.clientY - drag.clientY;
+      if (Math.hypot(deltaPx, deltaY) < 2) return;
+      drag.moved = true;
+      if (drag.axes.includes('x') && drag.scales.x) {
+        setManualScale('x', panScale(drag.scales.x, deltaPx, chart.bbox.width, xRangeRef.current));
+      }
+      if (drag.axes.includes('y') && drag.scales.y) {
+        setManualScale('y', panScale(drag.scales.y, -deltaY, chart.bbox.height));
+      }
+    };
+
+    const finishDrag = (event: PointerEvent) => {
+      if (!drag || drag.pointerId !== event.pointerId) return;
+      over.releasePointerCapture(event.pointerId);
+      over.style.cursor = '';
+      drag = null;
+    };
+
+    const onDoubleClick = (event: MouseEvent) => {
+      event.preventDefault();
+      resetViewport();
+    };
+
+    over.addEventListener('wheel', onWheel, { passive: false });
+    over.addEventListener('pointerdown', onPointerDown);
+    over.addEventListener('pointermove', onPointerMove);
+    over.addEventListener('pointerup', finishDrag);
+    over.addEventListener('pointercancel', finishDrag);
+    over.addEventListener('dblclick', onDoubleClick);
+
+    return () => {
+      over.removeEventListener('wheel', onWheel);
+      over.removeEventListener('pointerdown', onPointerDown);
+      over.removeEventListener('pointermove', onPointerMove);
+      over.removeEventListener('pointerup', finishDrag);
+      over.removeEventListener('pointercancel', finishDrag);
+      over.removeEventListener('dblclick', onDoubleClick);
+      over.style.cursor = '';
+    };
+  }, [markManualViewport, resetViewport]);
 
   const destroyChart = useCallback(() => {
+    interactionCleanupRef.current?.();
+    interactionCleanupRef.current = null;
     resizeObserverRef.current?.disconnect();
     resizeObserverRef.current = null;
     const chart = uplotRef.current;
@@ -249,9 +428,11 @@ export function usePlotChart({
 
     const chart = mountPlotChart(container, dataset, options, xRange);
     uplotRef.current = chart;
+    interactionCleanupRef.current = attachChartInteractions(chart);
     seriesSignaturesRef.current = seriesSignatures(dataset, hiddenSeries);
     if (
       loadingRef.current
+      && !manualViewportRef.current.x
       && shouldPinPlotXScaleToLogRange(xRange, followingViewWidthRef.current)
     ) {
       pinPlotXScaleToLogRange(chart, xRange);
@@ -267,7 +448,7 @@ export function usePlotChart({
     });
     observer.observe(container);
     resizeObserverRef.current = observer;
-  }, [config.xAxisMode, containerRef, dataset, destroyChart, hiddenSeries, logStart, panelId, xRange]);
+  }, [attachChartInteractions, config.xAxisMode, containerRef, dataset, destroyChart, hiddenSeries, logStart, panelId, xRange]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -339,6 +520,7 @@ export function usePlotChart({
     // range so the axis stays 0…duration while curves grow incrementally.
     if (
       loadingRef.current
+      && !manualViewportRef.current.x
       && shouldPinPlotXScaleToLogRange(xRange, followingViewWidthRef.current)
     ) {
       pinPlotXScaleToLogRange(chart, xRange);
@@ -365,7 +547,7 @@ export function usePlotChart({
   // When loading completes, force one Y-scale recompute so the locked-min/max
   // is replaced with the natural auto-fit range.
   useEffect(() => {
-    if (loading) return;
+    if (loading || manualViewportRef.current.y) return;
     const chart = uplotRef.current;
     if (!chart) return;
     resetPlotYScaleLock(chart);
@@ -384,7 +566,11 @@ export function usePlotChart({
         const chart = uplotRef.current;
         if (!chart) return;
 
-        if (xAxisModeRef.current === 'timestamp' && followingViewWidthRef.current > 0) {
+        if (
+          !manualViewportRef.current.x
+          && xAxisModeRef.current === 'timestamp'
+          && followingViewWidthRef.current > 0
+        ) {
           const end = currentTimeSecRef.current;
           if (end != null && Number.isFinite(end)) {
             chart.setScale('x', {
@@ -408,6 +594,7 @@ export function usePlotChart({
   useEffect(() => {
     const chart = uplotRef.current;
     if (!chart || config.xAxisMode !== 'timestamp') return;
+    if (manualViewportRef.current.x) return;
     if (config.followingViewWidthSec > 0) {
       const end = currentTimeSecRef.current;
       if (end != null && Number.isFinite(end)) {
@@ -426,5 +613,5 @@ export function usePlotChart({
     }
   }, [dataset.series.length, hiddenSeries]);
 
-  return uplotRef;
+  return { chartRef: uplotRef, resetViewport };
 }

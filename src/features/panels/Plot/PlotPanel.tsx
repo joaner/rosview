@@ -1,4 +1,5 @@
-import React, { useEffect, useMemo, useRef } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { RotateCcw } from 'lucide-react';
 import { useIntl } from 'react-intl';
 import { useShallow } from 'zustand/react/shallow';
 import 'uplot/dist/uPlot.min.css';
@@ -25,8 +26,9 @@ import {
   clearPlotLegendEntries,
   setPlotLegendEntries,
 } from './plotPanelRuntimeStore';
+import { PlotChartLegend } from './PlotChartLegend';
 import { formatPlotDatasetWarning } from './plotWarnings';
-import { usePlotChart } from './usePlotChart';
+import { hasManualPlotViewport, usePlotChart, type PlotViewportState } from './usePlotChart';
 import { usePlotPanelData } from './usePlotPanelData';
 import { usePlotTopicDetection } from './usePlotTopicDetection';
 import { timeToSec } from '@/core/analysis/timeSeries';
@@ -78,6 +80,8 @@ export const PlotPanel: React.FC<PlotPanelProps> = ({ player, panelId, config, s
   const { formatMessage } = useIntl();
   const containerRef = useRef<HTMLDivElement | null>(null);
   const autoTopicAppliedRef = useRef(false);
+  const pointerDownRef = useRef<{ x: number; y: number } | null>(null);
+  const [viewportState, setViewportState] = useState<PlotViewportState>({ x: false, y: false });
 
   const { startTime, endTime, randomAccessByTopic, topics } = useMessagePipeline(
     useShallow((state: MessagePipelineState) => ({
@@ -132,7 +136,11 @@ export const PlotPanel: React.FC<PlotPanelProps> = ({ player, panelId, config, s
     [config.hiddenLegendKeys, dataset.series],
   );
 
-  const uplotRef = usePlotChart({
+  const handleViewportStateChange = useCallback((state: PlotViewportState) => {
+    setViewportState((prev) => (prev.x === state.x && prev.y === state.y ? prev : state));
+  }, []);
+
+  const { chartRef: uplotRef, resetViewport } = usePlotChart({
     containerRef,
     player,
     panelId,
@@ -142,6 +150,7 @@ export const PlotPanel: React.FC<PlotPanelProps> = ({ player, panelId, config, s
     xRange,
     logStart: startTime,
     loading,
+    onViewportStateChange: handleViewportStateChange,
   });
 
   useEffect(() => {
@@ -221,6 +230,13 @@ export const PlotPanel: React.FC<PlotPanelProps> = ({ player, panelId, config, s
           : null;
 
   const handleChartClick = (event: React.MouseEvent<HTMLDivElement>) => {
+    if (event.detail > 1) return;
+    const pointerDown = pointerDownRef.current;
+    if (pointerDown) {
+      const dx = event.clientX - pointerDown.x;
+      const dy = event.clientY - pointerDown.y;
+      if (Math.hypot(dx, dy) > 4) return;
+    }
     const chart = uplotRef.current;
     if (!chart || config.xAxisMode !== 'timestamp') return;
     // posToVal expects a position relative to the plotting area (the `over`
@@ -236,6 +252,7 @@ export const PlotPanel: React.FC<PlotPanelProps> = ({ player, panelId, config, s
   const showLoadingOverlay = loading && dataset.pointCount === 0;
   const progressFraction =
     progress && progress.total > 0 ? Math.min(1, progress.completed / progress.total) : null;
+  const showResetZoom = hasManualPlotViewport(viewportState);
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-background">
@@ -277,8 +294,27 @@ export const PlotPanel: React.FC<PlotPanelProps> = ({ player, panelId, config, s
         <div
           ref={containerRef}
           className="min-h-0 flex-1 w-full overflow-hidden"
+          onPointerDown={(event) => {
+            pointerDownRef.current = { x: event.clientX, y: event.clientY };
+          }}
           onClick={handleChartClick}
         />
+        <PlotChartLegend panelId={panelId} config={config} setConfig={setConfig} />
+        {showResetZoom && (
+          <button
+            type="button"
+            className="absolute right-2 top-2 z-20 inline-flex h-7 items-center gap-1 rounded border border-border bg-card/95 px-2 text-[11px] text-foreground shadow-sm hover:bg-accent"
+            onClick={(event) => {
+              event.stopPropagation();
+              resetViewport();
+            }}
+            title={formatMessage({ id: 'panels.plot.toolbar.resetZoom' })}
+            aria-label={formatMessage({ id: 'panels.plot.toolbar.resetZoomAria' })}
+          >
+            <RotateCcw className="h-3.5 w-3.5" />
+            {formatMessage({ id: 'panels.plot.toolbar.resetZoom' })}
+          </button>
+        )}
         {!hasSeries && (
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center px-4 text-center text-xs text-muted-foreground">
             {formatMessage({ id: 'panels.plot.empty.selectTopic' })}

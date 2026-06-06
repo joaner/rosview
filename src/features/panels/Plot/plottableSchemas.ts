@@ -5,9 +5,6 @@ import {
   isRawAudioSchema,
   isRosImageSchema,
 } from '@/shared/ros/rosMessageTypes';
-import { isPlottableSchema } from './schemaRegistry/plotSchemaRegistry';
-
-export { isPlottableSchema };
 
 export function isBlockedPlotSchema(type: string): boolean {
   if (isRosImageSchema(type)) return true;
@@ -27,7 +24,12 @@ export function isBlockedPlotSchema(type: string): boolean {
 
 export function isPlottableTopic(topic: TopicInfo): boolean {
   if (isBlockedPlotSchema(topic.type)) return false;
-  return isPlottableSchema(topic.type);
+  return true;
+}
+
+export function isPlottableSchema(type: string): boolean {
+  if (isBlockedPlotSchema(type)) return false;
+  return true;
 }
 
 export function filterPlottableTopics(topics: ReadonlyArray<TopicInfo>): TopicInfo[] {

@@ -15,6 +15,7 @@ import { filterPlottableTopics } from './plottableSchemas';
 describe('plotSchemaRegistry', () => {
   it('includes JointState and excludes Image', () => {
     expect(isPlottableSchema('sensor_msgs/msg/JointState')).toBe(true);
+    expect(isPlottableSchema('tf2_msgs/msg/TFMessage')).toBe(true);
     expect(isPlottableSchema('sensor_msgs/msg/Image')).toBe(false);
     expect(isPlottableSchema('sensor_msgs/msg/CompressedImage')).toBe(false);
     expect(isPlottableSchema('sensor_msgs/msg/PointCloud2')).toBe(false);
@@ -23,7 +24,9 @@ describe('plotSchemaRegistry', () => {
   it('assigns highest priority to JointState', () => {
     const joint = lookupPlotSchema('sensor_msgs/JointState');
     const imu = lookupPlotSchema('sensor_msgs/Imu');
+    const tf = lookupPlotSchema('tf2_msgs/msg/TFMessage');
     expect(joint?.defaultPriority).toBeGreaterThan(imu?.defaultPriority ?? 0);
+    expect(imu?.defaultPriority).toBeGreaterThan(tf?.defaultPriority ?? 0);
   });
 });
 
@@ -96,10 +99,19 @@ describe('pickDefaultPlotTopic', () => {
   it('prefers JointState over other plottable topics', () => {
     const topic = pickDefaultPlotTopic([
       { name: '/imu', type: 'sensor_msgs/msg/Imu' },
+      { name: '/tf', type: 'tf2_msgs/msg/TFMessage' },
       { name: '/joint_states', type: 'sensor_msgs/msg/JointState' },
       { name: '/camera/image', type: 'sensor_msgs/msg/Image' },
     ]);
     expect(topic).toBe('/joint_states');
+  });
+
+  it('can default to TFMessage when it is the only plottable topic', () => {
+    const topic = pickDefaultPlotTopic([
+      { name: '/tf', type: 'tf2_msgs/msg/TFMessage' },
+      { name: '/camera/image', type: 'sensor_msgs/msg/Image' },
+    ]);
+    expect(topic).toBe('/tf');
   });
 
   it('filters to plottable topics only', () => {

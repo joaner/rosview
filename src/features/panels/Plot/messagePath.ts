@@ -83,6 +83,17 @@ function readNames(message: unknown): string[] {
   return out;
 }
 
+function readArrayItemName(value: ArrayLike<unknown>, index: number, message: unknown): string | undefined {
+  const rootNames = readNames(message);
+  const rootName = rootNames[index];
+  if (rootName) return rootName;
+
+  const item = value[index];
+  if (!item || typeof item !== 'object') return undefined;
+  const childFrameId = (item as Record<string, unknown>).child_frame_id;
+  return typeof childFrameId === 'string' && childFrameId.length > 0 ? childFrameId : undefined;
+}
+
 /** `position[1-2]` — hyphen range (both ends inclusive, same as `position[1:2]`). */
 const SLICE_HYPHEN_RANGE_RE = /^(-?\d+)-(-?\d+)$/;
 /** `position[2-]` — hyphen open end (same as `position[2:]`). */
@@ -187,7 +198,9 @@ function selectorItems(
   }
 
   if (selector.kind === 'name') {
-    const names = readNames(message);
+    const names = Array.from({ length: value.length }, (_, index) =>
+      readArrayItemName(value, index, message) ?? `${index}`,
+    );
     const index = names.indexOf(selector.name);
     return index < 0 || index >= value.length
       ? []
@@ -201,10 +214,9 @@ function selectorItems(
   const bounds = resolveSliceBounds(selector, value.length);
   if (!bounds) return [];
   const { startIdx, endIdx } = bounds;
-  const names = readNames(message);
   const out: Array<{ key: string; label: string; value: unknown }> = [];
   for (let i = startIdx; i <= endIdx; i++) {
-    const name = names[i];
+    const name = readArrayItemName(value, i, message);
     const label = name ? `${field}[${i}] (${name})` : `${field}[${i}]`;
     const key = name ? `${field}[${name}]` : `${field}[${i}]`;
     out.push({ key, label, value: value[i] });

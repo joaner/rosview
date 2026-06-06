@@ -67,6 +67,71 @@ describe('buildPlotDataset', () => {
     expect(dataset.data[2]).toEqual([0.2, 0.4]);
   });
 
+  it('builds separate runtime series from comma-separated scalar paths', () => {
+    const config = {
+      ...defaultPlotConfig(),
+      series: [{
+        ...defaultPlotConfig().series[0],
+        id: 'pose',
+        topic: '/pose',
+        path: 'pose.position.x,pose.position.y,pose.position.z',
+        timestampMode: 'receiveTime' as const,
+      }],
+    };
+    const dataset = buildPlotDataset(
+      [
+        event('/pose', 1, { pose: { position: { x: 1, y: 2, z: 3 } } }, 'geometry_msgs/msg/PoseStamped'),
+        event('/pose', 2, { pose: { position: { x: 4, y: 5, z: 6 } } }, 'geometry_msgs/msg/PoseStamped'),
+      ],
+      config,
+    );
+    expect(dataset.series.map((series) => series.label)).toEqual([
+      'pose.position.x',
+      'pose.position.y',
+      'pose.position.z',
+    ]);
+    expect(dataset.data[1]).toEqual([1, 4]);
+    expect(dataset.data[2]).toEqual([2, 5]);
+    expect(dataset.data[3]).toEqual([3, 6]);
+  });
+
+  it('keeps TFMessage transform curves stable by child_frame_id', () => {
+    const config = {
+      ...defaultPlotConfig(),
+      series: [{
+        ...defaultPlotConfig().series[0],
+        id: 'tf',
+        topic: '/tf',
+        path: 'transforms[:].transform.translation.x',
+        timestampMode: 'receiveTime' as const,
+      }],
+    };
+    const dataset = buildPlotDataset(
+      [
+        event('/tf', 1, {
+          transforms: [
+            { child_frame_id: 'link_A', transform: { translation: { x: 1 } } },
+            { child_frame_id: 'link_B', transform: { translation: { x: 10 } } },
+          ],
+        }, 'tf2_msgs/msg/TFMessage'),
+        event('/tf', 2, {
+          transforms: [
+            { child_frame_id: 'link_B', transform: { translation: { x: 20 } } },
+            { child_frame_id: 'link_A', transform: { translation: { x: 2 } } },
+          ],
+        }, 'tf2_msgs/msg/TFMessage'),
+      ],
+      config,
+    );
+
+    expect(dataset.series.map((series) => series.label)).toEqual([
+      'transforms[0] (link_A).transform.translation.x',
+      'transforms[1] (link_B).transform.translation.x',
+    ]);
+    expect(dataset.data[1]).toEqual([1, 2]);
+    expect(dataset.data[2]).toEqual([10, 20]);
+  });
+
   it('builds bounded JointState slices with Foxglove inclusive bounds', () => {
     const config = {
       ...defaultPlotConfig(),

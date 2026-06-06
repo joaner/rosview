@@ -73,6 +73,76 @@ export function formatPlotXValue(
   return value.toFixed(3);
 }
 
+export interface PlotScaleRange {
+  min: number;
+  max: number;
+}
+
+export function clampScaleToRange(
+  scale: PlotScaleRange,
+  fullRange?: PlotScaleRange,
+  minWidth = 1e-6,
+): PlotScaleRange {
+  let min = Math.min(scale.min, scale.max - minWidth);
+  let max = Math.max(scale.max, min + minWidth);
+
+  if (!fullRange) return { min, max };
+
+  const fullWidth = fullRange.max - fullRange.min;
+  const width = max - min;
+  if (!Number.isFinite(fullWidth) || fullWidth <= 0 || width >= fullWidth) {
+    return { ...fullRange };
+  }
+
+  if (min < fullRange.min) {
+    max += fullRange.min - min;
+    min = fullRange.min;
+  }
+  if (max > fullRange.max) {
+    min -= max - fullRange.max;
+    max = fullRange.max;
+  }
+
+  return {
+    min: Math.max(fullRange.min, min),
+    max: Math.min(fullRange.max, max),
+  };
+}
+
+export function zoomScaleAroundCursor(
+  scale: PlotScaleRange,
+  cursorVal: number,
+  factor: number,
+  fullRange?: PlotScaleRange,
+): PlotScaleRange {
+  const width = scale.max - scale.min;
+  if (!Number.isFinite(width) || width <= 0 || !Number.isFinite(cursorVal)) return scale;
+  const safeFactor = Math.min(100, Math.max(0.01, factor));
+  const ratio = Math.min(1, Math.max(0, (cursorVal - scale.min) / width));
+  const nextWidth = width * safeFactor;
+  return clampScaleToRange({
+    min: cursorVal - nextWidth * ratio,
+    max: cursorVal + nextWidth * (1 - ratio),
+  }, fullRange);
+}
+
+export function panScale(
+  scale: PlotScaleRange,
+  deltaPx: number,
+  plotWidth: number,
+  fullRange?: PlotScaleRange,
+): PlotScaleRange {
+  const width = scale.max - scale.min;
+  if (!Number.isFinite(width) || width <= 0 || !Number.isFinite(deltaPx) || plotWidth <= 0) {
+    return scale;
+  }
+  const deltaVal = -(deltaPx / plotWidth) * width;
+  return clampScaleToRange({
+    min: scale.min + deltaVal,
+    max: scale.max + deltaVal,
+  }, fullRange);
+}
+
 /** uPlot X-axis tick labels; reuses formatPlotXValue so ticks match hover labels. */
 export function formatPlotXAxisTicks(
   splits: number[],
@@ -379,7 +449,7 @@ export function createPlotUplotOptions(
       },
     ],
     cursor: {
-      drag: { setScale: true },
+      drag: { setScale: false },
       x: true,
       y: true,
       points: { show: false },

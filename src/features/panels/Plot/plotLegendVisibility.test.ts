@@ -5,8 +5,10 @@ import {
   plotLegendSelectionState,
   pruneHiddenLegendKeys,
   setAllPlotLegendVisible,
+  setOnlyPlotLegendVisible,
   setPlotLegendGroupVisible,
   setPlotLegendVisible,
+  visiblePlotLegendCount,
 } from './plotLegendVisibility';
 
 describe('plotLegendVisibility', () => {
@@ -36,6 +38,18 @@ describe('plotLegendVisibility', () => {
       's1:a',
       's1:b',
     ]);
+  });
+
+  it('shows only one legend entry within a group', () => {
+    expect(setOnlyPlotLegendVisible(['s2:x'], ['s1:a', 's1:b', 's1:c'], 's1:b')).toEqual([
+      's2:x',
+      's1:a',
+      's1:c',
+    ]);
+  });
+
+  it('counts visible entries', () => {
+    expect(visiblePlotLegendCount(entries, ['b'])).toBe(2);
   });
 
   it('maps hidden keys to chart series indices', () => {

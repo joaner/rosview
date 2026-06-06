@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   diffSeriesTopology,
+  hasManualPlotViewport,
+  plotInteractionAxes,
   shouldPinPlotXScaleToLogRange,
   shouldRemountForIncrementalSeriesUpdate,
   type SeriesSignature,
@@ -101,5 +103,20 @@ describe('shouldPinPlotXScaleToLogRange', () => {
 
   it('does not pin when playhead following owns the X axis', () => {
     expect(shouldPinPlotXScaleToLogRange(logRange, 10)).toBe(false);
+  });
+});
+
+describe('plot viewport interaction helpers', () => {
+  it('reports whether any axis is manually controlled', () => {
+    expect(hasManualPlotViewport({ x: false, y: false })).toBe(false);
+    expect(hasManualPlotViewport({ x: true, y: false })).toBe(true);
+    expect(hasManualPlotViewport({ x: false, y: true })).toBe(true);
+  });
+
+  it('maps modifiers to interaction axes', () => {
+    expect(plotInteractionAxes({ shiftKey: false, ctrlKey: false, metaKey: false })).toEqual(['x']);
+    expect(plotInteractionAxes({ shiftKey: true, ctrlKey: false, metaKey: false })).toEqual(['y']);
+    expect(plotInteractionAxes({ shiftKey: false, ctrlKey: true, metaKey: false })).toEqual(['x', 'y']);
+    expect(plotInteractionAxes({ shiftKey: false, ctrlKey: false, metaKey: true })).toEqual(['x', 'y']);
   });
 });
