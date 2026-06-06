@@ -13,7 +13,8 @@ export type PlotAdapterId =
   | 'twist'
   | 'pose'
   | 'wrench'
-  | 'odometry';
+  | 'odometry'
+  | 'tfMessage';
 
 export interface PlotSchemaEntry {
   /** Normalized suffix, e.g. sensor_msgs/jointstate */
@@ -27,6 +28,8 @@ export interface DetectedPlotPath {
   path: string;
   label?: string;
   xAxisPath?: string;
+  /** When false, expose in field pickers but do not include in auto-created default Y path. */
+  default?: boolean;
 }
 
 export interface AdapterContext {

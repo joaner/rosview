@@ -7,6 +7,7 @@ import {
   plotLegendSelectionState,
   setPlotLegendGroupVisible,
   setPlotLegendVisible,
+  visiblePlotLegendCount,
 } from './plotLegendVisibility';
 import { usePlotLegendEntries } from './plotPanelRuntimeStore';
 
@@ -48,7 +49,7 @@ export function PlotLegendSettings({
   );
 
   const visibleCount = useMemo(
-    () => entries.filter((entry) => isPlotLegendVisible(hiddenKeys, entry.key)).length,
+    () => visiblePlotLegendCount(entries, hiddenKeys),
     [entries, hiddenKeys],
   );
 

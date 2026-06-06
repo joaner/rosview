@@ -2,7 +2,8 @@ import { useCallback, useRef, useState } from 'react';
 import type { Player } from '@/core/types/player';
 import type { Time } from '@/core/types/ros';
 import type { TopicInfo } from '@/core/types/ros';
-import type { JointStateField, PlotConfig } from './defaults';
+import { isJointStateSchema } from '@/shared/ros/rosMessageTypes';
+import type { PlotConfig } from './defaults';
 import {
   applyDetectedTopicToConfig,
   clearSeriesTopic,
@@ -45,6 +46,9 @@ export function usePlotTopicDetection({
       try {
         const isPrimary = seriesId === config.series[0]?.id;
         const schemaName = topicByName.get(topic)?.type;
+        const jointStateFields = schemaName && isJointStateSchema(schemaName)
+          ? config.jointStateFields
+          : undefined;
         const result = await buildSeriesForTopic({
           topic,
           schemaName,
@@ -52,7 +56,7 @@ export function usePlotTopicDetection({
           startTime,
           endTime,
           existingSeriesId: seriesId,
-          jointStateFields: isPrimary ? config.jointStateFields : (['position'] as JointStateField[]),
+          jointStateFields,
         });
 
         if (requestId !== requestIdRef.current) return;

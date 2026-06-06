@@ -55,6 +55,8 @@ const ENTRIES: PlotSchemaEntry[] = [
   { schemaSuffix: 'geometry_msgs/wrenchstamped', adapterId: 'wrench', defaultPriority: 65 },
   // nav_msgs
   { schemaSuffix: 'nav_msgs/odometry', adapterId: 'odometry', defaultPriority: 80 },
+  // tf2_msgs
+  { schemaSuffix: 'tf2_msgs/tfmessage', adapterId: 'tfMessage', defaultPriority: 20 },
 ];
 
 const REGISTRY = new Map<string, PlotSchemaEntry>(

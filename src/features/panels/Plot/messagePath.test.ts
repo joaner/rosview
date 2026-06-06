@@ -34,6 +34,40 @@ describe('extractPlotPathValues', () => {
     ]);
   });
 
+  it('maps TFMessage transforms by child_frame_id', () => {
+    const message = {
+      transforms: [
+        {
+          child_frame_id: 'link_Hips_R',
+          transform: { translation: { x: 0.1 } },
+        },
+        {
+          child_frame_id: 'link_Knee_R',
+          transform: { translation: { x: 0.2 } },
+        },
+      ],
+    };
+    expect(extractPlotPathValues(message, 'transforms[:].transform.translation.x')).toEqual([
+      {
+        key: 'transforms[link_Hips_R].transform.translation.x',
+        label: 'transforms[0] (link_Hips_R).transform.translation.x',
+        value: 0.1,
+      },
+      {
+        key: 'transforms[link_Knee_R].transform.translation.x',
+        label: 'transforms[1] (link_Knee_R).transform.translation.x',
+        value: 0.2,
+      },
+    ]);
+    expect(extractPlotPathValues(message, 'transforms[link_Knee_R].transform.translation.x')).toEqual([
+      {
+        key: 'transforms[link_Knee_R].transform.translation.x',
+        label: 'transforms[1] (link_Knee_R).transform.translation.x',
+        value: 0.2,
+      },
+    ]);
+  });
+
   it('applies math modifiers', () => {
     expect(extractPlotPathValues({ data: -2 }, 'data@abs')).toEqual([
       { key: 'data', label: 'data', value: 2 },

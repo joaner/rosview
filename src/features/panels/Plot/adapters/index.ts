@@ -171,6 +171,37 @@ export const odometryAdapter: PlotTypeAdapter = {
   },
 };
 
+export const tfMessageAdapter: PlotTypeAdapter = {
+  detect(): DetectedPlotPath[] {
+    return [
+      { path: 'transforms[:].transform.translation.x', label: 'translation.x' },
+      { path: 'transforms[:].transform.translation.y', label: 'translation.y' },
+      { path: 'transforms[:].transform.translation.z', label: 'translation.z' },
+      { path: 'transforms[:].transform.rotation.x', label: 'rotation.x', default: false },
+      { path: 'transforms[:].transform.rotation.y', label: 'rotation.y', default: false },
+      { path: 'transforms[:].transform.rotation.z', label: 'rotation.z', default: false },
+      { path: 'transforms[:].transform.rotation.w', label: 'rotation.w', default: false },
+    ];
+  },
+  validate(sample: unknown): boolean {
+    if (!sample || typeof sample !== 'object') return false;
+    const transforms = (sample as Record<string, unknown>).transforms;
+    if (!Array.isArray(transforms) || transforms.length === 0) return false;
+
+    return transforms.some((item) => {
+      if (!item || typeof item !== 'object') return false;
+      const transform = (item as Record<string, unknown>).transform;
+      if (!transform || typeof transform !== 'object') return false;
+      const translation = (transform as Record<string, unknown>).translation;
+      if (!translation || typeof translation !== 'object') return false;
+      return ['x', 'y', 'z'].some((axis) => {
+        const value = (translation as Record<string, unknown>)[axis];
+        return typeof value === 'number' && Number.isFinite(value);
+      });
+    });
+  },
+};
+
 export function validateDetectedPaths(sample: unknown, paths: DetectedPlotPath[]): DetectedPlotPath[] {
   if (!sample) return paths;
   return paths.filter((entry) => {

@@ -1,10 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import {
+  clampScaleToRange,
   computeRelativeTimeSplits,
   formatPlotXAxisTicks,
   formatPlotXValue,
   formatPlotYValue,
+  panScale,
   pickRelativeTimeIncrement,
+  zoomScaleAroundCursor,
 } from './plotChart';
 
 describe('plotChart formatting', () => {
@@ -59,5 +62,46 @@ describe('relative time axis splits', () => {
       '00:01.000',
       '00:02.000',
     ]);
+  });
+});
+
+describe('plot chart viewport helpers', () => {
+  it('zooms around the cursor value', () => {
+    expect(zoomScaleAroundCursor({ min: 0, max: 10 }, 2.5, 0.5)).toEqual({
+      min: 1.25,
+      max: 6.25,
+    });
+  });
+
+  it('zooms Y ranges around the cursor value without requiring a full range', () => {
+    expect(zoomScaleAroundCursor({ min: -10, max: 10 }, 5, 0.5)).toEqual({
+      min: -2.5,
+      max: 7.5,
+    });
+  });
+
+  it('pans with pixel deltas and clamps to the full range', () => {
+    expect(panScale({ min: 20, max: 40 }, 50, 100, { min: 0, max: 100 })).toEqual({
+      min: 10,
+      max: 30,
+    });
+    expect(panScale({ min: 0, max: 20 }, 50, 100, { min: 0, max: 100 })).toEqual({
+      min: 0,
+      max: 20,
+    });
+  });
+
+  it('pans Y ranges without full-range clamping', () => {
+    expect(panScale({ min: -10, max: 10 }, -25, 100)).toEqual({
+      min: -5,
+      max: 15,
+    });
+  });
+
+  it('clamps oversized views to the full range', () => {
+    expect(clampScaleToRange({ min: -10, max: 120 }, { min: 0, max: 100 })).toEqual({
+      min: 0,
+      max: 100,
+    });
   });
 });

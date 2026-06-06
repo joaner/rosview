@@ -35,6 +35,27 @@ export function setPlotLegendGroupVisible(
   return [...next];
 }
 
+/** Hide every legend entry in the provided group except one target key. */
+export function setOnlyPlotLegendVisible(
+  hiddenKeys: readonly string[],
+  groupKeys: readonly string[],
+  key: string,
+): string[] {
+  const group = new Set(groupKeys);
+  const next = new Set(hiddenKeys.filter((entry) => !group.has(entry)));
+  for (const entry of groupKeys) {
+    if (entry !== key) next.add(entry);
+  }
+  return [...next];
+}
+
+export function visiblePlotLegendCount(
+  entries: readonly PlotLegendEntry[],
+  hiddenKeys: readonly string[],
+): number {
+  return entries.filter((entry) => isPlotLegendVisible(hiddenKeys, entry.key)).length;
+}
+
 export function pruneHiddenLegendKeys(
   hiddenKeys: readonly string[],
   validKeys: readonly string[],
