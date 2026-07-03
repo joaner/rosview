@@ -161,7 +161,7 @@ export function parseChannel(
         messageType.toObject(messageType.decode(new Uint8Array(data.buffer, data.byteOffset, data.byteLength)), {
           longs: String,
           enums: String,
-          bytes: Array,
+          bytes: Uint8Array,
           defaults: true,
         }),
     };
