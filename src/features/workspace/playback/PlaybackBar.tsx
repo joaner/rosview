@@ -537,6 +537,7 @@ export const PlaybackBar: React.FC<PlaybackBarProps> = ({ player, extensionConte
             </Button>
             <div
               ref={playbackTimeRef}
+              data-testid="playback-time-line"
               className="min-w-0 flex-1 truncate tabular-nums text-muted-foreground/85"
               title={timeDisplayMode === 'absolute' ? timezone : undefined}
             />
