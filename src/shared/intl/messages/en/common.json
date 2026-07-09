@@ -8,5 +8,7 @@
   "errors.noRecordingsInArchive": "No supported recordings found in archive",
   "viewer.resizeSidebar": "Resize sidebar",
   "viewer.remoteUrlPrompt": "Enter remote recording or TAR URL (https://…)",
+  "viewer.mergeToast.message": "Merged {name} into the current session",
+  "viewer.mergeToast.action": "Switch to replace instead",
   "common.dialogClose": "Close"
 }

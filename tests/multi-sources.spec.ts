@@ -87,6 +87,50 @@ test.describe('multi-source merge', () => {
     await expect(page.getByText('files merged', { exact: false })).toHaveCount(1);
   });
 
+  test('merging into an active session shows a toast offering to replace instead', async ({ page }) => {
+    await page.goto('/');
+    await page.locator('#rosview-landing-file').setInputFiles([MCAP_MULTI_BASE]);
+    await waitForRosviewReady(page);
+
+    await page.locator('#rosview-inline-file').setInputFiles([MCAP_MULTI_INCREMENTAL]);
+    await expect(
+      page.getByRole('button', { name: '/analysis/hand_pose_overlay/compressed', exact: true }),
+    ).toBeVisible({ timeout: 30_000 });
+
+    await expect(page.getByText('Merged test_multi_incremental.mcap into the current session')).toBeVisible({
+      timeout: 30_000,
+    });
+    await expect(page.getByRole('button', { name: 'Switch to replace instead' })).toBeVisible();
+  });
+
+  test('clicking "switch to replace" detaches the newly-added file into its own session', async ({ page }) => {
+    await page.goto('/');
+    await page.locator('#rosview-landing-file').setInputFiles([MCAP_MULTI_BASE]);
+    await waitForRosviewReady(page);
+
+    await page.locator('#rosview-inline-file').setInputFiles([MCAP_MULTI_INCREMENTAL]);
+    await expect(
+      page.getByRole('button', { name: '/analysis/hand_pose_overlay/compressed', exact: true }),
+    ).toBeVisible({ timeout: 30_000 });
+    // Merged session briefly has all 3 topics before the user acts on the toast.
+    await expect(page.getByRole('button', { name: '/joint_states', exact: true })).toBeVisible();
+
+    await page.getByRole('button', { name: 'Switch to replace instead' }).click();
+
+    // Now viewing only the incremental file's own topic and time range (3s-7s -> 4s duration).
+    await expect(
+      page.getByRole('button', { name: '/analysis/hand_pose_overlay/compressed', exact: true }),
+    ).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByRole('button', { name: '/joint_states', exact: true })).toHaveCount(0);
+    await expect(page.getByTestId('playback-time-line')).toContainText('00:04.000', { timeout: 30_000 });
+
+    // The original (base) session is left intact and switchable, not destroyed.
+    await page.getByRole('tab', { name: 'Data' }).click();
+    const dataTab = page.getByRole('tabpanel');
+    await expect(dataTab.getByText('test_multi_base.mcap')).toBeVisible();
+    await expect(dataTab.getByText('test_multi_incremental.mcap')).toBeVisible();
+  });
+
   test('topic "more" menu shows the source file once sessions are merged', async ({ page }) => {
     await page.goto('/');
     await page.locator('#rosview-landing-file').setInputFiles([MCAP_MULTI_BASE, MCAP_MULTI_INCREMENTAL]);

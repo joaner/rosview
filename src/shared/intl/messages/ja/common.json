@@ -8,5 +8,7 @@
   "errors.noRecordingsInArchive": "アーカイブ内に対応する録画が見つかりません",
   "viewer.resizeSidebar": "サイドバーの幅を変更",
   "viewer.remoteUrlPrompt": "リモートの録画または TAR の URL を入力（https://…）",
+  "viewer.mergeToast.message": "{name} を現在のセッションに統合しました",
+  "viewer.mergeToast.action": "置き換えに切り替える",
   "common.dialogClose": "閉じる"
 }

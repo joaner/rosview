@@ -1,8 +1,10 @@
 import { useCallback, useState } from 'react';
+import { toast } from 'sonner';
 import type { SampleDataset } from '@/services/sampleDatasets';
 import { getArchiveUrl } from '@/services/sampleDatasets';
 import { extractRosFilesFromTarArchive } from '@/shared/utils/tarRosRecordings';
 import {
+  createDatasetGroupId,
   filterRosFilesFromFileList,
   isRosRecordingFilename,
   mergeDatasetLists,
@@ -27,12 +29,18 @@ import { resolveBrowserHttpUrl } from '@/shared/utils/resolveBrowserHttpUrl';
 import { pushSpaUrlParam, serializeSourceLocator } from '@/shared/utils/sourceLocator';
 import type { createRosViewIntl } from '@/shared/intl/createRosViewIntl';
 import { useSpaUrlBootstrap } from './useSpaUrlBootstrap';
-import { errorMessageFromUnknown } from './rosViewerUtils';
+import { errorMessageFromUnknown, fileBatchDisplayName } from './rosViewerUtils';
+import type { AppendFilesResult } from './useDatasetSession';
 import type { RosViewerProps } from './RosViewer.types';
 
 export interface UseRecordingSourceActionsArgs {
   urlState: 'spa' | 'off';
-  appendFilesAsDatasets: (files: File[], focusFirstNew?: boolean, groupFiles?: File[], forceNewSession?: boolean) => void;
+  appendFilesAsDatasets: (
+    files: File[],
+    focusFirstNew?: boolean,
+    groupFiles?: File[],
+    forceNewSession?: boolean,
+  ) => AppendFilesResult;
   setExtraDatasets: React.Dispatch<React.SetStateAction<DatasetItem[]>>;
   setActiveId: React.Dispatch<React.SetStateAction<string | null>>;
   setLoadedGroupId: (value: string | null) => void;
@@ -54,6 +62,37 @@ function remotePathnameLower(url: string): string {
   } catch {
     return url.split('?')[0].split('#')[0].toLowerCase();
   }
+}
+
+/**
+ * Merging new files into the active session is silent/non-blocking by
+ * default (see `appendFilesAsDatasets`), but the user has no way to say "no,
+ * open these as their own session instead" once it's happened. This surfaces
+ * a lightweight, dismissible toast with a one-click "switch to replace"
+ * action: it detaches the files just added from the current group into a
+ * fresh one and switches to it. The previous session is left untouched (not
+ * closed), so it stays reachable from the sidebar Data tab.
+ */
+function notifyMergeWithUndo(
+  result: AppendFilesResult,
+  displayName: string,
+  offlineIntl: ReturnType<typeof createRosViewIntl>,
+  setExtraDatasets: React.Dispatch<React.SetStateAction<DatasetItem[]>>,
+  setActiveId: React.Dispatch<React.SetStateAction<string | null>>,
+): void {
+  if (!result.merged || result.addedItemIds.length === 0) return;
+  const addedIds = new Set(result.addedItemIds);
+  toast(offlineIntl.formatMessage({ id: 'viewer.mergeToast.message' }, { name: displayName }), {
+    duration: 8000,
+    action: {
+      label: offlineIntl.formatMessage({ id: 'viewer.mergeToast.action' }),
+      onClick: () => {
+        const replaceGroupId = createDatasetGroupId();
+        setExtraDatasets((prev) => prev.map((d) => (addedIds.has(d.id) ? { ...d, groupId: replaceGroupId } : d)));
+        setActiveId(replaceGroupId);
+      },
+    },
+  });
 }
 
 /**
@@ -86,8 +125,7 @@ export function useRecordingSourceActions(props: RosViewerProps, args: UseRecord
   const recordLocalRosFilesHistory = useCallback(
     (files: File[], fileHandles?: FileSystemFileHandle[]) => {
       if (files.length === 0) return;
-      const displayName =
-        files.length === 1 ? files[0].name : `${files[0].name} +${String(files.length - 1)}`;
+      const displayName = fileBatchDisplayName(files);
       const canReplayWithHandles = Array.isArray(fileHandles) && fileHandles.length === files.length;
       const fileSetFingerprint = fingerprintRosFileSet(files);
       void recordHistoryEntry({
@@ -120,7 +158,8 @@ export function useRecordingSourceActions(props: RosViewerProps, args: UseRecord
       if (urlState === 'spa') {
         spaSampleLocatorParamRef.current = null;
       }
-      appendFilesAsDatasets(files, true, files);
+      const appendResult = appendFilesAsDatasets(files, true, files);
+      notifyMergeWithUndo(appendResult, fileBatchDisplayName(files), offlineIntl, setExtraDatasets, setActiveId);
       if (dropped?.directoryHandle) {
         void recordHistoryEntry({
           kind: 'directory',
@@ -143,6 +182,8 @@ export function useRecordingSourceActions(props: RosViewerProps, args: UseRecord
       offlineIntl,
       recordHistoryEntry,
       recordLocalRosFilesHistory,
+      setActiveId,
+      setExtraDatasets,
       spaSampleLocatorParamRef,
       urlState,
     ],
@@ -158,7 +199,14 @@ export function useRecordingSourceActions(props: RosViewerProps, args: UseRecord
       if (files.length === 0) {
         return;
       }
-      appendFilesAsDatasets(files, true, files);
+      const appendResult = appendFilesAsDatasets(files, true, files);
+      notifyMergeWithUndo(
+        appendResult,
+        directoryHandle?.name ?? fileBatchDisplayName(files),
+        offlineIntl,
+        setExtraDatasets,
+        setActiveId,
+      );
       if (directoryHandle) {
         await recordHistoryEntry({
           kind: 'directory',
@@ -186,6 +234,8 @@ export function useRecordingSourceActions(props: RosViewerProps, args: UseRecord
     clearOpenFeedback,
     offlineIntl,
     recordHistoryEntry,
+    setActiveId,
+    setExtraDatasets,
     showOpenError,
     spaSampleLocatorParamRef,
     urlState,
@@ -230,10 +280,20 @@ export function useRecordingSourceActions(props: RosViewerProps, args: UseRecord
         spaSampleLocatorParamRef.current = null;
       }
       const ros = filterRosFilesFromFileList(fileList);
-      appendFilesAsDatasets(ros, false, ros);
+      const appendResult = appendFilesAsDatasets(ros, false, ros);
+      notifyMergeWithUndo(appendResult, fileBatchDisplayName(ros), offlineIntl, setExtraDatasets, setActiveId);
       recordLocalRosFilesHistory(ros);
     },
-    [appendFilesAsDatasets, clearOpenFeedback, recordLocalRosFilesHistory, spaSampleLocatorParamRef, urlState],
+    [
+      appendFilesAsDatasets,
+      clearOpenFeedback,
+      offlineIntl,
+      recordLocalRosFilesHistory,
+      setActiveId,
+      setExtraDatasets,
+      spaSampleLocatorParamRef,
+      urlState,
+    ],
   );
 
   const handleOpenRemoteRecordingUrl = useCallback(
@@ -374,12 +434,22 @@ export function useRecordingSourceActions(props: RosViewerProps, args: UseRecord
       return;
     }
     recordLocalRosFilesHistory(picked.files, picked.fileHandles);
-    appendFilesAsDatasets(picked.files, false, picked.files);
+    const appendResult = appendFilesAsDatasets(picked.files, false, picked.files);
+    notifyMergeWithUndo(
+      appendResult,
+      fileBatchDisplayName(picked.files),
+      offlineIntl,
+      setExtraDatasets,
+      setActiveId,
+    );
   }, [
     appendFilesAsDatasets,
     clearOpenFeedback,
     fileInputDomIdRef,
+    offlineIntl,
     recordLocalRosFilesHistory,
+    setActiveId,
+    setExtraDatasets,
     spaSampleLocatorParamRef,
     urlState,
   ]);

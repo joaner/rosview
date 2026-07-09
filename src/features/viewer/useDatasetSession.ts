@@ -17,6 +17,14 @@ import { resolveBrowserHttpUrl } from '@/shared/utils/resolveBrowserHttpUrl';
 import { isCustomLocalLocatorString } from '@/shared/utils/sourceLocator';
 import type { RosViewerProps } from './RosViewer.types';
 
+export interface AppendFilesResult {
+  groupId: string;
+  /** True when this batch was folded into an already-active group (as opposed to starting a fresh one), and at least one file was genuinely new. */
+  merged: boolean;
+  /** Dataset ids newly added by this call (excludes files that were already present), for the "switch to replace" undo action. */
+  addedItemIds: string[];
+}
+
 /**
  * Owns the dataset/session state machine: the flat list of loaded
  * datasets (from props + files/URLs/tar/history opened at runtime), which
@@ -146,7 +154,7 @@ export function useDatasetSession(
   }, [hasSource]);
 
   const appendFilesAsDatasets = useCallback(
-    (files: File[], focusFirstNew = true, groupFiles?: File[], forceNewSession = false) => {
+    (files: File[], focusFirstNew = true, groupFiles?: File[], forceNewSession = false): AppendFilesResult => {
       const siblingFiles = groupFiles && groupFiles.length > 1 ? [...groupFiles] : undefined;
       const activeId = activeIdRef.current;
       const currentDatasets = datasetsRef.current;
@@ -178,6 +186,8 @@ export function useDatasetSession(
           ...(siblingFiles ? { siblingFiles } : {}),
         })),
       );
+      const existingIds = new Set(currentDatasets.map((d) => d.id));
+      const addedItemIds = items.filter((i) => !existingIds.has(i.id)).map((i) => i.id);
       setExtraDatasets((prev) => mergeDatasetLists(prev, items));
       if (items.length > 0 && focusFirstNew) {
         setActiveId(groupId);
@@ -187,6 +197,7 @@ export function useDatasetSession(
         setLoadedGroupId(null);
         clearOpenFeedback();
       }
+      return { groupId, merged: hasActiveGroup && addedItemIds.length > 0, addedItemIds };
     },
     [clearOpenFeedback],
   );

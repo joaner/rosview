@@ -63,6 +63,12 @@ export function resolveLayoutPersistence(
   return layoutPersistence;
 }
 
+/** "first.mcap" or "first.mcap +N" for a batch of files, used in history/toast labels. */
+export function fileBatchDisplayName(files: File[]): string {
+  if (files.length === 0) return '';
+  return files.length === 1 ? files[0].name : `${files[0].name} +${String(files.length - 1)}`;
+}
+
 export function datasetItemToSourceLocator(ds: DatasetItem): SourceLocator | null {
   if (ds.kind === 'url' && ds.url) {
     const resolvedUrl = resolveBrowserHttpUrl(ds.url);
