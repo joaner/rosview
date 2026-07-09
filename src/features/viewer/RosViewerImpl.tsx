@@ -1,477 +1,56 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { cn } from '@/shared/lib/utils';
-import { createRosViewIntl } from '@/shared/intl/createRosViewIntl';
+import React, { useMemo, useRef, useState } from 'react';
 import { RosViewProvider } from './RosViewProvider';
 import { AppShell } from '@/app/AppShell';
-import { SampleDatasetDialog } from '@/features/workspace/common/SampleDatasetDialog';
-import { getArchiveUrl, getSampleDatasetsManifestUrl, loadSampleDatasets } from '@/services/sampleDatasets';
-import type { SampleDataset } from '@/services/sampleDatasets';
-import { extractRosFilesFromTarArchive } from '@/shared/utils/tarRosRecordings';
-import { WorkerSerializedSource, isWorkerSourceCancelledError } from '@/infra/workers/WorkerSerializedSource';
-import { IterablePlayer } from '@/core/players/IterablePlayer';
-import { MinimalPlayer } from '@/core/players/MinimalPlayer';
-import type { Player } from '@/core/types/player';
-import { useMessagePipelineStore } from '@/core/pipeline/store';
-import { Navbar } from '@/features/workspace/navbar/Navbar';
-import { WelcomeScreen } from '@/features/workspace/common/WelcomeScreen';
-import { LoadingOverlay } from '@/features/workspace/common/LoadingOverlay';
-import { Skeleton } from '@/shared/ui/skeleton';
-import type { DatasetItem, FileListItem } from '@/shared/utils/datasetSources';
-import {
-  createDatasetGroupId,
-  datasetGroupKey,
-  datasetItemsFromListItems,
-  dedupeDatasetItems,
-  filterRosFilesFromFileList,
-  groupDatasets,
-  isRosRecordingFilename,
-  mergeDatasetLists,
-  normalizeRosViewSources,
-  parseRemoteDatasetListJson,
-} from '@/shared/utils/datasetSources';
-import { CombinedSourceProxy, type CombinedSourceMember } from '@/infra/workers/CombinedSourceProxy';
-import {
-  collectRosFilesFromUserDirectoryChoice,
-  walkDirectoryHandle,
-} from '@/shared/utils/collectDirectoryRosFiles';
-import {
-  ensureReadPermission,
-  fingerprintRosFileSet,
-  getDatasetHistoryEntry,
-  getLatestReplayableHistoryByLocalLocator,
-  listDatasetHistory,
-  tarFileFingerprint,
-  upsertDatasetHistoryEntry,
-} from '@/shared/utils/datasetHistory';
-import type { DatasetHistoryListItem, DatasetHistoryStoredEntry } from '@/shared/utils/datasetHistory';
-import {
-  alignFileHandlesToRosFiles,
-  collectRosRecordingFilesFromDataTransfer,
-  collectRosRecordingFileHandlesFromDataTransfer,
-} from '@/shared/utils/collectDragFileHandles';
-import { pickRosRecordingFiles } from '@/shared/utils/openRosRecordingFilePicker';
-import { resolveBrowserHttpUrl } from '@/shared/utils/resolveBrowserHttpUrl';
-import {
-  type SourceLocator,
-  isCustomLocalLocatorString,
-  parseSourceLocator,
-  pushSpaUrlParam,
-  serializeSourceLocator,
-} from '@/shared/utils/sourceLocator';
-import { readPreferences, writePreferences } from '@/core/preferences/readWritePreferences';
-import {
-  mergeInitialUiPreferences,
-  readUiPreferenceParamsFromSearch,
-} from '@/core/preferences/mergeInitialUiPreferences';
 import type { PreferencePersistence } from '@/core/preferences/types';
-import type { FoxgloveLayoutData } from '@/core/preferences/foxgloveLayout';
 import { ROS_VIEW_LAYOUT_STORAGE_KEY } from '@/core/preferences/storageKeys';
-import type { OpenPanelInput } from '@/features/layout/dockviewController';
-import { resolveEmbedChrome, type RosViewerChrome, type RosViewerMode } from './embedChrome';
+import { resolveEmbedChrome } from './embedChrome';
 import { RosViewerLayoutProvider } from './RosViewerLayoutContext';
-import type { RosViewExtension } from '@/core/extensions/types';
-import { toast } from 'sonner';
-import {
-  loadHdf5WasmBinary,
-  loadSqlWasmBinary,
-  loadZstdWasmBinary,
-  needsZstdWasmForWorker,
-} from '@/infra/workers/preloadWorkerWasm';
+import { RosViewerLandingScreen } from './RosViewerLandingScreen';
+import { useThemeLanguagePreferences } from './useThemeLanguagePreferences';
+import { useDatasetHistory } from './useDatasetHistory';
+import { useDatasetSession } from './useDatasetSession';
+import { usePlayerLifecycle } from './usePlayerLifecycle';
+import { useRecordingSourceActions } from './useRecordingSourceActions';
+import { useOpenFeedback } from './useOpenFeedback';
+import type { RosViewerProps } from './RosViewer.types';
+import { propsSignature, resolveLayoutPersistence } from './rosViewerUtils';
 
-function extensionForDataset(ds: DatasetItem): string | undefined {
-  if (ds.kind === 'file' && ds.file) {
-    return ds.file.name.split('.').pop()?.toLowerCase();
-  }
-  if (ds.kind === 'url' && ds.url) {
-    try {
-      const path = new URL(ds.url).pathname;
-      return path.split('.').pop()?.toLowerCase();
-    } catch {
-      return ds.url.split('.').pop()?.toLowerCase();
-    }
-  }
-  return undefined;
-}
-
-async function createWorkerForExtension(ext: string | undefined): Promise<Worker> {
-  if (ext === 'bvh') {
-    const { default: BvhWorkerClass } = await import('@/infra/workers/bvh.worker.ts?worker&inline');
-    return new BvhWorkerClass();
-  }
-  if (ext === 'bag') {
-    const { default: BagWorkerClass } = await import('@/infra/workers/bag.worker.ts?worker&inline');
-    return new BagWorkerClass();
-  }
-  if (ext === 'db3') {
-    const { default: Db3WorkerClass } = await import('@/infra/workers/db3.worker.ts?worker&inline');
-    return new Db3WorkerClass();
-  }
-  if (ext === 'hdf5' || ext === 'h5') {
-    const { default: Hdf5WorkerClass } = await import('@/infra/workers/hdf5.worker.ts?worker&inline');
-    return new Hdf5WorkerClass();
-  }
-  const { default: McapWorkerClass } = await import('@/infra/workers/mcap.worker.ts?worker&inline');
-  return new McapWorkerClass();
-}
-
-async function buildInitArgsForDataset(
-  ds: DatasetItem,
-  ext: string | undefined,
-  autoDataQualityScan: boolean,
-): Promise<Record<string, unknown>> {
-  const workerPerf =
-    typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('workerPerf') === '1';
-  const sqlWasmBinary = ext === 'db3' ? await loadSqlWasmBinary() : undefined;
-  const hdf5WasmBinary = ext === 'hdf5' || ext === 'h5' ? await loadHdf5WasmBinary() : undefined;
-  const zstdWasmBinary = needsZstdWasmForWorker(ext) ? await loadZstdWasmBinary() : undefined;
-  if (ds.kind === 'url' && ds.url) {
-    const init: Record<string, unknown> = {
-      url: resolveBrowserHttpUrl(ds.url),
-      workerPerf,
-      autoDataQualityScan,
-    };
-    if (ext === 'db3') {
-      init.sqlWasmBinary = sqlWasmBinary;
-    }
-    if (hdf5WasmBinary) {
-      init.hdf5WasmBinary = hdf5WasmBinary;
-    }
-    if (zstdWasmBinary) {
-      init.zstdWasmBinary = zstdWasmBinary;
-    }
-    if (
-      typeof ds.sizeBytes === 'number' &&
-      Number.isFinite(ds.sizeBytes) &&
-      ds.sizeBytes > 0
-    ) {
-      init.knownTotalBytes = Math.floor(ds.sizeBytes);
-    }
-    return init;
-  }
-  if (ds.kind === 'file' && ds.file) {
-    const siblingFiles = ds.siblingFiles?.filter((file) => isRosRecordingFilename(file.name)) ?? [];
-    const files = siblingFiles.length > 0 ? siblingFiles : [ds.file];
-    if (ext === 'bag' || ext === 'db3') {
-      return {
-        file: ds.file,
-        files,
-        workerPerf,
-        autoDataQualityScan,
-        ...(sqlWasmBinary ? { sqlWasmBinary } : {}),
-        ...(zstdWasmBinary ? { zstdWasmBinary } : {}),
-      };
-    }
-    return {
-      file: ds.file,
-      workerPerf,
-      autoDataQualityScan,
-      ...(hdf5WasmBinary ? { hdf5WasmBinary } : {}),
-      ...(zstdWasmBinary ? { zstdWasmBinary } : {}),
-    };
-  }
-  throw new Error('Invalid dataset item');
-}
-
-/**
- * Creates a Worker + `WorkerSerializedSource` + init args for one dataset
- * member. Shared by both the single-file fast path and the multi-file
- * `CombinedSourceProxy` path so a group of 1 behaves byte-for-byte like
- * today's single-source loading.
- */
-async function prepareSourceMember(
-  ds: DatasetItem,
-  autoDataQualityScan: boolean,
-): Promise<{ member: CombinedSourceMember; ext: string | undefined }> {
-  const ext = extensionForDataset(ds);
-  const worker = await createWorkerForExtension(ext);
-  worker.onerror = (ev) => console.error('MAIN: Worker error', ev);
-  const initArgs = await buildInitArgsForDataset(ds, ext, autoDataQualityScan);
-  const source = new WorkerSerializedSource(worker);
-  return { member: { label: ds.name, source, initArgs }, ext };
-}
-
-/** Try indices in order: startIdx .. end-1, then 0 .. startIdx-1 */
-function fallbackIndexOrder(length: number, startIdx: number): number[] {
-  if (length <= 0) return [];
-  const s = Math.max(0, Math.min(startIdx, length - 1));
-  const out: number[] = [];
-  for (let i = s; i < length; i++) out.push(i);
-  for (let i = 0; i < s; i++) out.push(i);
-  return out;
-}
-
-function propsSignature(props: RosViewerProps): string {
-  const urlState = props.urlState ?? 'off';
-  const urls = (props.urls ?? []).map((u) => u.trim()).join('\0');
-  const url = props.url?.trim() ?? '';
-  const files = (props.files ?? []).map((f) => `${f.name}:${f.size}:${f.lastModified}`).join('\0');
-  const file = props.file ? `${props.file.name}:${props.file.size}:${props.file.lastModified}` : '';
-  const fileListSig =
-    props.fileManifest == null
-      ? ''
-      : typeof props.fileManifest === 'string'
-        ? props.fileManifest.trim()
-        : JSON.stringify(props.fileManifest);
-  const mergeSources = props.mergeSources ? '1' : '0';
-  return `${urlState}|${urls}|${url}|${files}|${file}|${fileListSig}|${mergeSources}`;
-}
-
-function initialUiFromProps(p: RosViewerProps) {
-  const persistence: PreferencePersistence = p.preferencePersistence ?? 'localStorage';
-  const { urlTheme, urlLanguage } = readUiPreferenceParamsFromSearch(
-    typeof window !== 'undefined' ? window.location.search : '',
-  );
-  return mergeInitialUiPreferences({
-    persistence,
-    propsTheme: p.theme,
-    propsLanguage: p.language,
-    urlTheme,
-    urlLanguage,
-    stored: persistence === 'localStorage' ? readPreferences() : null,
-  });
-}
-
-function errorMessageFromUnknown(error: unknown, fallback: string): string {
-  if (error instanceof Error) return error.message;
-  if (typeof error === 'string') return error;
-  return fallback;
-}
-
-export interface RosViewerProps {
-  url?: string;
-  file?: File;
-  urls?: string[];
-  files?: File[];
-  /**
-   * When `true`, every dataset produced from `file`/`files`/`url`/`urls`/
-   * `fileManifest` is merged into a single multi-source session (topics and
-   * time range unioned) instead of the default "list + switch" behavior.
-   * @default false
-   */
-  mergeSources?: boolean;
-  theme?: 'light' | 'dark' | 'system';
-  language?: 'en' | 'zh' | 'ja';
-  /** CSS class applied to the outermost container element. */
-  className?: string;
-  /** Inline styles applied to the outermost container element. */
-  style?: React.CSSProperties;
-  onFatalError?: (error: Error) => void;
-  /**
-   * `'localStorage'`: read/write `ioai.rosview.prefs`. `'off'`: no storage (host owns prefs).
-   * @default 'localStorage'
-   */
-  preferencePersistence?: PreferencePersistence;
-  /** Fired when the user changes theme in the navbar (orthogonal to persistence). */
-  onThemeChange?: (theme: 'light' | 'dark' | 'system') => void;
-  /** Fired when the user changes language in the navbar. */
-  onLanguageChange?: (language: 'en' | 'zh' | 'ja') => void;
-  /** Fired after this component rewrites SPA query state and the host should re-read `window.location.search`. */
-  onSpaUrlQuerySync?: () => void;
-  /**
-   * Remote dataset manifest: JSON URL or parsed rows.
-   * Merged/deduped with `url` / `urls`; fetch errors are logged only and do not block other sources.
-   */
-  fileManifest?: string | FileListItem[];
-  /** Optional third-party extension contributions for sidebar and playback overlays. */
-  extensions?: RosViewExtension[];
-  /** Optional center label override shown in navbar source area. */
-  navbarSourceName?: string;
-  /** Whether to show the left navbar brand button. @default true */
-  showNavbarBrand?: boolean;
-  /** Custom label for the left navbar brand button (defaults to product name). */
-  navbarBrandLabel?: string;
-  /** Whether to show navbar language switcher. @default true */
-  showLanguageSwitcher?: boolean;
-  /** Whether to show navbar theme switcher. @default true */
-  showThemeSwitcher?: boolean;
-  /** Prefer auto layout bootstrap over welcome placeholder in embedded mode. @default false */
-  preferAutoLayout?: boolean;
-  /**
-   * `spa`: sync `?url=` with the active source; restore `file://` / `folder://` from IndexedDB on load, and `sample://` from the sample manifest.
-   * `off`: library / embed — never writes the URL; custom locators in `url` do not auto-restore.
-   * @default 'off'
-   */
-  urlState?: 'spa' | 'off';
-  /**
-   * Opaque host payload forwarded to every `RosViewExtension` as `context.hostContext`.
-   * RosView does not read or validate this object.
-   */
-  hostContext?: unknown;
-  /**
-   * Embed preset. `tool` opens panels without a recording source (MinimalPlayer) and defaults to panels-only chrome.
-   * @default 'viewer'
-   */
-  mode?: RosViewerMode;
-  /** When false, mount MinimalPlayer and workspace without url/file. @default true (false when mode='tool'). */
-  requireSource?: boolean;
-  /** Chrome preset; overridden by explicit showNavbar/showSidebar/showPlaybackBar. */
-  chrome?: RosViewerChrome;
-  showNavbar?: boolean;
-  showSidebar?: boolean;
-  showPlaybackBar?: boolean;
-  /** Hide navbar file menus and disable recording drag-and-drop in the workspace. */
-  hideOpenFileMenus?: boolean;
-  /**
-   * `'inherit'`: follow `preferencePersistence`. `'off'`: never read/write layout localStorage.
-   * @default 'inherit'
-   */
-  layoutPersistence?: PreferencePersistence | 'inherit';
-  layoutStorageKey?: string;
-  /** Applied on mount before saved layout. */
-  initialLayout?: FoxgloveLayoutData;
-  /** Shorthand single-panel layout when `initialLayout` is omitted. */
-  defaultPanel?: OpenPanelInput;
-  /** When true (default for mode='tool'), skip Dockview Welcome placeholder. */
-  suppressWelcomePanel?: boolean;
-  onLayoutReady?: (info: { panelCount: number }) => void;
-  onPlayerReady?: (ctx: { player: Player; hasSource: boolean }) => void;
-  onSourceLoadingChange?: (loading: boolean) => void;
-  /** Sidebar tab id to select on first mount (e.g. extension `sidebarTabs[].id`). */
-  initialSidebarTab?: string;
-}
-
-function resolveLayoutPersistence(
-  layoutPersistence: PreferencePersistence | 'inherit' | undefined,
-  preferencePersistence: PreferencePersistence,
-): PreferencePersistence {
-  if (layoutPersistence === undefined || layoutPersistence === 'inherit') {
-    return preferencePersistence;
-  }
-  return layoutPersistence;
-}
-
-function datasetItemToSourceLocator(ds: DatasetItem): SourceLocator | null {
-  if (ds.kind === 'url' && ds.url) {
-    const resolvedUrl = resolveBrowserHttpUrl(ds.url);
-    return { kind: 'remote', raw: ds.url.trim(), resolvedUrl };
-  }
-  if (ds.kind === 'file' && ds.file) {
-    return { kind: 'local_file', displayName: ds.file.name };
-  }
-  return null;
-}
+export type { RosViewerProps } from './RosViewer.types';
 
 export const RosViewer: React.FC<RosViewerProps> = (props) => {
   const urlState = props.urlState ?? 'off';
   const propSig = propsSignature(props);
-  const fromProps = useMemo(
-    () =>
-      normalizeRosViewSources({
-        file: props.file,
-        files: props.files,
-        url: isCustomLocalLocatorString(props.url) ? undefined : props.url,
-        urls: urlState === 'spa' ? undefined : props.urls,
-        fileManifest: Array.isArray(props.fileManifest) ? props.fileManifest : undefined,
-        mergeSources: props.mergeSources,
-      }),
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- propSig fingerprints File identity and source props
-    [propSig, urlState],
-  );
 
-  const [extraDatasets, setExtraDatasets] = useState<DatasetItem[]>([]);
+  const { lastLoadError, manualOpenHint, setLastLoadError, setManualOpenHint, clearOpenFeedback, showOpenError } =
+    useOpenFeedback();
 
-  useEffect(() => {
-    const targets: string[] = [];
-    if (typeof props.fileManifest === 'string' && props.fileManifest.trim()) {
-      targets.push(resolveBrowserHttpUrl(props.fileManifest.trim()));
-    }
-    if (targets.length === 0) return;
-    let cancelled = false;
-    void (async () => {
-      const merged: FileListItem[] = [];
-      for (const t of targets) {
-        try {
-          const res = await fetch(t);
-          if (!res.ok) {
-            console.warn('[RosViewer] dataset list HTTP', res.status, t);
-            continue;
-          }
-          const json: unknown = await res.json();
-          merged.push(...parseRemoteDatasetListJson(json));
-        } catch (e) {
-          console.warn('[RosViewer] dataset list fetch failed', t, e);
-        }
-      }
-      if (cancelled || merged.length === 0) return;
-      setExtraDatasets((prev) => mergeDatasetLists(prev, datasetItemsFromListItems(merged)));
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [propSig, props.fileManifest]);
+  const {
+    datasets,
+    datasetsRef,
+    setExtraDatasets,
+    activeId,
+    setActiveId,
+    setLoadedGroupId,
+    activeGroupMembersKey,
+    resolvedDatasetId,
+    loadingSourceName,
+    effectiveSourceName,
+    hasSource,
+    fileInputDomIdRef,
+    tarInputDomIdRef,
+    appendFilesAsDatasets,
+  } = useDatasetSession(props, urlState, propSig, clearOpenFeedback, setManualOpenHint);
 
-  const datasets = useMemo(() => mergeDatasetLists(fromProps, extraDatasets), [fromProps, extraDatasets]);
-
-  const datasetsRef = useRef(datasets);
-  // eslint-disable-next-line react-hooks/refs -- sync latest datasets for async player init
-  datasetsRef.current = datasets;
-
-  const onFatalErrorRef = useRef(props.onFatalError);
-  useEffect(() => {
-    onFatalErrorRef.current = props.onFatalError;
-  }, [props.onFatalError]);
-
-  /** Holds a group key (see `datasetGroupKey`); a standalone dataset is a group of one. */
-  const [activeId, setActiveId] = useState<string | null>(null);
-  /** When fallback loads a non-selected group, highlights it in the sidebar without re-running the activeId load effect. */
-  const [loadedGroupId, setLoadedGroupId] = useState<string | null>(null);
-  const [lastLoadError, setLastLoadError] = useState<string | null>(null);
-  const [manualOpenHint, setManualOpenHint] = useState<string | null>(null);
-
-  useEffect(() => {
-    setExtraDatasets([]);
-    setLoadedGroupId(null);
-    setManualOpenHint(null);
-  }, [propSig]);
-
-  const [currentTheme, setCurrentTheme] = useState<'light' | 'dark' | 'system'>(() => initialUiFromProps(props).theme);
-  const [currentLanguage, setCurrentLanguage] = useState<'en' | 'zh' | 'ja'>(() => initialUiFromProps(props).language);
-  const [player, setPlayer] = useState<Player | null>(null);
   const [sampleDialogOpen, setSampleDialogOpen] = useState(false);
-  const [remoteUrlBusy, setRemoteUrlBusy] = useState(false);
-  const [historyItems, setHistoryItems] = useState<DatasetHistoryListItem[]>([]);
-  const fileInputDomIdRef = useRef('rosview-landing-file');
-  const tarInputDomIdRef = useRef('rosview-landing-tar');
-  /** Invalidates in-flight SPA `file://` / `folder://` / `sample://` bootstrap when deps change or effect cleans up. */
-  const spaUrlBootstrapGenRef = useRef(0);
-  /** When set, successful player init writes `sample://…` to the address bar instead of the resolved archive URL. */
+  /** When set, successful player init writes `sample://…` to the address bar instead of the resolved archive URL. Shared between `usePlayerLifecycle` (reads/clears on success) and `useRecordingSourceActions` (sets it). */
   const spaSampleLocatorParamRef = useRef<string | null>(null);
 
-  const offlineIntl = useMemo(() => createRosViewIntl(currentLanguage), [currentLanguage]);
-
-  const clearOpenFeedback = useCallback(() => {
-    setLastLoadError(null);
-    setManualOpenHint(null);
-  }, []);
-
-  const showOpenError = useCallback((message: string) => {
-    setLastLoadError(message);
-    setManualOpenHint(null);
-    toast.error(message);
-  }, []);
-
-  const refreshHistory = useCallback(async () => {
-    const list = await listDatasetHistory();
-    setHistoryItems(list);
-  }, []);
-
-  useEffect(() => {
-    void refreshHistory();
-  }, [refreshHistory]);
-
-  const recordHistoryEntry = useCallback(
-    async (row: Omit<DatasetHistoryStoredEntry, 'id' | 'openedAt'>) => {
-      try {
-        await upsertDatasetHistoryEntry(row);
-      } catch (e) {
-        console.warn('[RosViewer] dataset history write failed', e);
-      }
-      await refreshHistory();
-    },
-    [refreshHistory],
-  );
-
   const persistence: PreferencePersistence = props.preferencePersistence ?? 'localStorage';
+  const { currentTheme, currentLanguage, offlineIntl, handleThemeChange, handleLanguageChange } =
+    useThemeLanguagePreferences(props, persistence);
+
+  const { historyItems, recordHistoryEntry } = useDatasetHistory();
+
   const requireSource = props.requireSource ?? props.mode !== 'tool';
   const embedChrome = useMemo(
     () =>
@@ -487,730 +66,55 @@ export const RosViewer: React.FC<RosViewerProps> = (props) => {
   const resolvedLayoutPersistence = resolveLayoutPersistence(props.layoutPersistence, persistence);
   const layoutStorageKey = props.layoutStorageKey ?? ROS_VIEW_LAYOUT_STORAGE_KEY;
   const suppressWelcomePanel = props.suppressWelcomePanel ?? props.mode === 'tool';
-  const onThemeChangeProp = props.onThemeChange;
-  const onLanguageChangeProp = props.onLanguageChange;
 
-  const handleThemeChange = useCallback(
-    (theme: 'light' | 'dark' | 'system') => {
-      setCurrentTheme(theme);
-      if (persistence === 'localStorage' && (theme === 'light' || theme === 'dark')) {
-        writePreferences({ theme });
-      }
-      onThemeChangeProp?.(theme);
-    },
-    [persistence, onThemeChangeProp],
-  );
-
-  const handleLanguageChange = useCallback(
-    (language: 'en' | 'zh' | 'ja') => {
-      setCurrentLanguage(language);
-      if (persistence === 'localStorage') {
-        writePreferences({ language });
-      }
-      onLanguageChangeProp?.(language);
-    },
-    [persistence, onLanguageChangeProp],
-  );
-
-  useEffect(() => {
-    if (props.theme != null) setCurrentTheme(props.theme);
-  }, [props.theme]);
-
-  useEffect(() => {
-    if (props.language != null) setCurrentLanguage(props.language);
-  }, [props.language]);
-
-  const groups = useMemo(() => groupDatasets(datasets), [datasets]);
-
-  useEffect(() => {
-    if (datasets.length === 0) {
-      setActiveId(null);
-      return;
-    }
-    setActiveId((prev) => {
-      if (prev && datasets.some((d) => datasetGroupKey(d) === prev)) return prev;
-      return datasetGroupKey(datasets[0]);
-    });
-  }, [datasets]);
-
-  /** Members of the group the load effect targets, stable while unrelated datasets change. */
-  const activeGroupMembersKey = useMemo(() => {
-    const resolvedGroupId = loadedGroupId ?? activeId;
-    const group = groups.find((g) => g.groupId === resolvedGroupId);
-    return group ? group.members.map((m) => m.id).join('\u0000') : '';
-  }, [groups, loadedGroupId, activeId]);
-
-  const resolvedDatasetId = loadedGroupId ?? activeId;
-  const activeGroup = useMemo(
-    () => (resolvedDatasetId ? groups.find((g) => g.groupId === resolvedDatasetId) ?? null : null),
-    [groups, resolvedDatasetId],
-  );
-  const activeDataset = activeGroup?.members[0] ?? null;
-
-  const loadingSourceName = activeGroup
-    ? activeGroup.members.length > 1
-      ? `${activeGroup.members[0].name} +${String(activeGroup.members.length - 1)}`
-      : activeDataset?.kind === 'url'
-        ? activeDataset.url
-        : activeDataset?.file?.name
-    : undefined;
-  const effectiveSourceName = props.navbarSourceName ?? loadingSourceName;
-
-  const hasSource = datasets.length > 0;
-  const sourceLoading = hasSource && player == null && lastLoadError == null;
-
-  const onPlayerReadyRef = useRef(props.onPlayerReady);
-  useEffect(() => {
-    onPlayerReadyRef.current = props.onPlayerReady;
-  }, [props.onPlayerReady]);
-  const playerReadyFiredRef = useRef(false);
-
-  useEffect(() => {
-    playerReadyFiredRef.current = false;
-  }, [player]);
-
-  useEffect(() => {
-    if (!player) return;
-    const fireIfReady = () => {
-      if (playerReadyFiredRef.current) return;
-      if (useMessagePipelineStore.getState().playerState.presence !== 'ready') return;
-      playerReadyFiredRef.current = true;
-      onPlayerReadyRef.current?.({ player, hasSource });
-    };
-    fireIfReady();
-    return useMessagePipelineStore.subscribe(fireIfReady);
-  }, [player, hasSource]);
-
-  const onSourceLoadingChangeRef = useRef(props.onSourceLoadingChange);
-  useEffect(() => {
-    onSourceLoadingChangeRef.current = props.onSourceLoadingChange;
-  }, [props.onSourceLoadingChange]);
-
-  useEffect(() => {
-    onSourceLoadingChangeRef.current?.(sourceLoading);
-  }, [sourceLoading]);
-
-  useEffect(() => {
-    if (requireSource || hasSource) return;
-    const minimal = new MinimalPlayer();
-    setPlayer(minimal);
-    return () => {
-      minimal.close();
-      setPlayer(null);
-    };
-  }, [requireSource, hasSource]);
-
-  useEffect(() => {
-    fileInputDomIdRef.current = hasSource ? 'rosview-inline-file' : 'rosview-landing-file';
-    tarInputDomIdRef.current = hasSource ? 'rosview-inline-tar' : 'rosview-landing-tar';
-  }, [hasSource]);
-
-  const appendFilesAsDatasets = useCallback((
-    files: File[],
-    focusFirstNew = true,
-    groupFiles?: File[],
-    forceNewSession = false,
-  ) => {
-    const siblingFiles = groupFiles && groupFiles.length > 1 ? [...groupFiles] : undefined;
-    // Default behavior: new recording files merge into whatever session is
-    // currently active (topics/time-range union), matching the common
-    // "open base recording, later add an incrementally-produced file"
-    // workflow. When nothing is active yet, the whole batch becomes one
-    // fresh session together. `forceNewSession` opts out (used by
-    // tar-archive extraction and history replay, which represent opening a
-    // self-contained recording bundle rather than adding to the workspace).
-    const currentGroups = groupDatasets(datasetsRef.current);
-    const hasActiveGroup =
-      !forceNewSession && activeId != null && currentGroups.some((g) => g.groupId === activeId);
-    const groupId = hasActiveGroup ? activeId : createDatasetGroupId();
-    const items = dedupeDatasetItems(
-      files.map((f) => ({
-        id: `file:${f.name}:${f.size}:${f.lastModified}`,
-        kind: 'file' as const,
-        name: f.name,
-        file: f,
-        groupId,
-        ...(siblingFiles ? { siblingFiles } : {}),
-      })),
-    );
-    setExtraDatasets((prev) => mergeDatasetLists(prev, items));
-    if (items.length > 0 && focusFirstNew) {
-      setActiveId(groupId);
-      setLoadedGroupId(null);
-      clearOpenFeedback();
-    } else if (items.length > 0) {
-      setLoadedGroupId(null);
-      clearOpenFeedback();
-    }
-  }, [activeId, clearOpenFeedback]);
-
-  const recordLocalRosFilesHistory = useCallback(
-    (files: File[], fileHandles?: FileSystemFileHandle[]) => {
-      if (files.length === 0) return;
-      const displayName =
-        files.length === 1 ? files[0].name : `${files[0].name} +${String(files.length - 1)}`;
-      const canReplayWithHandles = Array.isArray(fileHandles) && fileHandles.length === files.length;
-      const fileSetFingerprint = fingerprintRosFileSet(files);
-      void recordHistoryEntry({
-        kind: canReplayWithHandles ? 'files' : 'file_meta',
-        displayName,
-        fileSetFingerprint,
-        ...(canReplayWithHandles ? { fileHandles } : {}),
-        detail:
-          files.length > 1
-            ? offlineIntl.formatMessage({ id: 'welcome.historyFileCount' }, { count: files.length })
-            : undefined,
-      });
-    },
-    [offlineIntl, recordHistoryEntry],
-  );
-
-  const handleDropRosRecordingFiles = useCallback(
-    async (inputFiles: File[], dataTransferItems?: DataTransferItemList) => {
-      const dropped = await collectRosRecordingFilesFromDataTransfer(dataTransferItems);
-      const files = dropped?.files.length ? dropped.files : filterRosFilesFromFileList(inputFiles);
-      if (files.length === 0) return;
-      let fileHandles = dropped?.fileHandles;
-      if (!fileHandles && dataTransferItems && dataTransferItems.length > 0) {
-        const raw = await collectRosRecordingFileHandlesFromDataTransfer(dataTransferItems);
-        if (raw?.length) {
-          fileHandles = await alignFileHandlesToRosFiles(files, raw);
-        }
-      }
-      clearOpenFeedback();
-      if (urlState === 'spa') {
-        spaSampleLocatorParamRef.current = null;
-      }
-      appendFilesAsDatasets(files, true, files);
-      if (dropped?.directoryHandle) {
-        void recordHistoryEntry({
-          kind: 'directory',
-          displayName: dropped.directoryHandle.name,
-          directoryHandle: dropped.directoryHandle,
-          detail: offlineIntl.formatMessage({ id: 'welcome.historyFileCount' }, { count: files.length }),
-        });
-        if (urlState === 'spa') {
-          pushSpaUrlParam(
-            serializeSourceLocator({ kind: 'local_folder', displayName: dropped.directoryHandle.name }),
-          );
-        }
-      } else {
-        recordLocalRosFilesHistory(files, fileHandles);
-      }
-    },
-    [appendFilesAsDatasets, clearOpenFeedback, offlineIntl, recordHistoryEntry, recordLocalRosFilesHistory, urlState],
-  );
-
-  const handleOpenDirectory = useCallback(async () => {
-    clearOpenFeedback();
-    if (urlState === 'spa') {
-      spaSampleLocatorParamRef.current = null;
-    }
-    try {
-      const { files, directoryHandle } = await collectRosFilesFromUserDirectoryChoice();
-      if (files.length === 0) {
-        return;
-      }
-      appendFilesAsDatasets(files, true, files);
-      if (directoryHandle) {
-        await recordHistoryEntry({
-          kind: 'directory',
-          displayName: directoryHandle.name,
-          directoryHandle,
-          detail: offlineIntl.formatMessage({ id: 'welcome.historyFileCount' }, { count: files.length }),
-        });
-        if (urlState === 'spa') {
-          pushSpaUrlParam(
-            serializeSourceLocator({ kind: 'local_folder', displayName: directoryHandle.name }),
-          );
-        }
-      } else {
-        await recordHistoryEntry({
-          kind: 'directory_fallback',
-          displayName: offlineIntl.formatMessage({ id: 'welcome.historyFolderPicker' }),
-          detail: offlineIntl.formatMessage({ id: 'welcome.historyFileCount' }, { count: files.length }),
-        });
-      }
-    } catch (e) {
-      showOpenError(errorMessageFromUnknown(e, offlineIntl.formatMessage({ id: 'errors.loadFailed' })));
-    }
-  }, [appendFilesAsDatasets, clearOpenFeedback, offlineIntl, recordHistoryEntry, showOpenError, urlState]);
-
-  const handleDragOver = useCallback((e: React.DragEvent) => {
-    if (!Array.from(e.dataTransfer.types).includes('Files')) {
-      return;
-    }
-    e.preventDefault();
-    e.dataTransfer.dropEffect = 'copy';
-  }, []);
-
-  const handleDrop = useCallback(
-    (e: React.DragEvent) => {
-      if (!Array.from(e.dataTransfer.types).includes('Files')) {
-        return;
-      }
-      e.preventDefault();
-      void handleDropRosRecordingFiles(Array.from(e.dataTransfer.files), e.dataTransfer.items);
-    },
-    [handleDropRosRecordingFiles],
-  );
-
-  useEffect(() => {
-    if (!requireSource && !hasSource) {
-      return;
-    }
-    if (!hasSource || !activeId) {
-      setPlayer(null);
-      return;
-    }
-
-    const groupsLive = groupDatasets(datasetsRef.current);
-    if (!groupsLive.find((g) => g.groupId === activeId)) {
-      setPlayer(null);
-      return;
-    }
-
-    let cancelled = false;
-    let createdPlayer: IterablePlayer | null = null;
-
-    const run = async () => {
-      setLastLoadError(null);
-      const startIdx = groupsLive.findIndex((g) => g.groupId === activeId);
-      const order = fallbackIndexOrder(groupsLive.length, startIdx >= 0 ? startIdx : 0);
-      let lastErr: unknown = null;
-      const autoDataQualityScan =
-        persistence === 'localStorage' && readPreferences()?.autoDataQualityScan === true;
-
-      for (const idx of order) {
-        if (cancelled) return;
-        const group = groupsLive[idx];
-
-        let preparedMembers: CombinedSourceMember[];
-        try {
-          const prepared = await Promise.all(
-            group.members.map((ds) => prepareSourceMember(ds, autoDataQualityScan)),
-          );
-          preparedMembers = prepared.map((p) => p.member);
-        } catch (err) {
-          if (cancelled) return;
-          lastErr = err;
-          continue;
-        }
-        if (cancelled) {
-          for (const m of preparedMembers) m.source.terminate();
-          return;
-        }
-
-        // A group of one uses `WorkerSerializedSource` directly, matching
-        // today's single-file path byte-for-byte; only 2+ members go through
-        // `CombinedSourceProxy`.
-        const newPlayer =
-          preparedMembers.length === 1
-            ? new IterablePlayer(preparedMembers[0].source)
-            : new IterablePlayer(new CombinedSourceProxy(preparedMembers));
-        createdPlayer = newPlayer;
-        if (!cancelled) setPlayer(newPlayer);
-
-        try {
-          const initArgs = preparedMembers.length === 1 ? preparedMembers[0].initArgs : {};
-          await newPlayer.initialize(initArgs);
-          if (cancelled) {
-            newPlayer.close();
-            createdPlayer = null;
-            return;
-          }
-          // Do not call setActiveId here: it would re-run this effect's cleanup and close the player we just opened (multi-source fallback).
-          setLoadedGroupId(group.groupId !== activeId ? group.groupId : null);
-          clearOpenFeedback();
-          if (urlState === 'spa') {
-            const sampleParam = spaSampleLocatorParamRef.current;
-            if (sampleParam) {
-              pushSpaUrlParam(sampleParam);
-              spaSampleLocatorParamRef.current = null;
-            } else if (group.members.length === 1) {
-              const loc = datasetItemToSourceLocator(group.members[0]);
-              if (loc) {
-                pushSpaUrlParam(serializeSourceLocator(loc));
-              }
-            }
-            // Merged multi-file sessions have no single `?url=` locator to
-            // round-trip; the address bar keeps whatever it last showed.
-          }
-          return;
-        } catch (err) {
-          if (cancelled || isWorkerSourceCancelledError(err)) {
-            newPlayer.close();
-            createdPlayer = null;
-            return;
-          }
-          lastErr = err;
-          newPlayer.close();
-          createdPlayer = null;
-          if (!cancelled) setPlayer(null);
-        }
-      }
-
-      if (cancelled) return;
-      const message =
-        lastErr instanceof Error
-          ? lastErr.message
-          : typeof lastErr === 'string'
-            ? lastErr
-            : offlineIntl.formatMessage({ id: 'errors.loadFailed' });
-      showOpenError(message);
-      onFatalErrorRef.current?.(lastErr instanceof Error ? lastErr : new Error(message));
-    };
-
-    void run();
-
-    return () => {
-      cancelled = true;
-      createdPlayer?.close();
-      setPlayer(null);
-    };
-    // `activeGroupMembersKey` is not read directly but forces a rebuild when
-    // files are added to (or removed from) the currently active group.
-  }, [
+  const { player, sourceLoading } = usePlayerLifecycle(props, {
+    requireSource,
+    hasSource,
+    lastLoadError,
     activeId,
     activeGroupMembersKey,
-    clearOpenFeedback,
-    hasSource,
-    offlineIntl,
+    datasetsRef,
     persistence,
-    requireSource,
-    showOpenError,
     urlState,
-  ]);
+    offlineIntl,
+    clearOpenFeedback,
+    showOpenError,
+    setLastLoadError,
+    setLoadedGroupId,
+    spaSampleLocatorParamRef,
+  });
 
-  const onDatasetSelect = useCallback(
-    (id: string) => {
-      clearOpenFeedback();
-      setLoadedGroupId(null);
-      if (urlState === 'spa') {
-        spaSampleLocatorParamRef.current = null;
-      }
-      setActiveId(id);
-    },
-    [clearOpenFeedback, urlState],
-  );
-
-  const onAddFilesFromPicker = useCallback(
-    (fileList: FileList | null) => {
-      if (!fileList?.length) return;
-      clearOpenFeedback();
-      if (urlState === 'spa') {
-        spaSampleLocatorParamRef.current = null;
-      }
-      const ros = filterRosFilesFromFileList(fileList);
-      appendFilesAsDatasets(ros, false, ros);
-      recordLocalRosFilesHistory(ros);
-    },
-    [appendFilesAsDatasets, clearOpenFeedback, recordLocalRosFilesHistory, urlState],
-  );
-
-  function remotePathnameLower(url: string): string {
-    try {
-      return new URL(url).pathname.toLowerCase();
-    } catch {
-      return url.split('?')[0].split('#')[0].toLowerCase();
-    }
-  }
-
-  const handleOpenRemoteRecordingUrl = useCallback(
-    async (
-      rawUrl: string,
-      meta?: {
-        sample?: { id: string; title: string };
-      },
-    ) => {
-      if (urlState === 'spa') {
-        if (meta?.sample?.id?.trim()) {
-          spaSampleLocatorParamRef.current = serializeSourceLocator({
-            kind: 'sample',
-            sampleId: meta.sample.id.trim(),
-          });
-        } else {
-          spaSampleLocatorParamRef.current = null;
-        }
-      }
-
-      const trimmed = rawUrl.trim();
-      if (!trimmed) return;
-      const resolved = resolveBrowserHttpUrl(trimmed);
-      const pathLower = remotePathnameLower(resolved);
-      const isRemoteTar =
-        pathLower.endsWith('.tar') || pathLower.endsWith('.tar.gz') || pathLower.endsWith('.tgz');
-
-      setRemoteUrlBusy(true);
-      clearOpenFeedback();
-      try {
-        if (isRemoteTar) {
-          const res = await fetch(resolved);
-          if (!res.ok) throw new Error(`HTTP ${res.status}`);
-          const buf = await res.arrayBuffer();
-          const extracted = extractRosFilesFromTarArchive(buf);
-          if (extracted.length === 0) {
-            throw new Error(offlineIntl.formatMessage({ id: 'errors.noRecordingsInArchive' }));
-          }
-          appendFilesAsDatasets(extracted, true, undefined, true);
-          const tail = resolved.split('/').pop() || resolved;
-          await recordHistoryEntry({
-            kind: meta?.sample ? 'sample' : 'remote_tar',
-            displayName: meta?.sample?.title ?? tail,
-            url: resolved,
-            sampleId: meta?.sample?.id,
-            detail: offlineIntl.formatMessage({ id: 'welcome.historyFileCount' }, { count: extracted.length }),
-          });
-        } else {
-          setExtraDatasets((prev) => mergeDatasetLists(prev, normalizeRosViewSources({ url: resolved })));
-          setActiveId(`url:${resolved}`);
-          setLoadedGroupId(null);
-          const tail = resolved.split('/').pop() || resolved;
-          await recordHistoryEntry({
-            kind: meta?.sample ? 'sample' : 'url',
-            displayName: meta?.sample?.title ?? tail,
-            url: resolved,
-            sampleId: meta?.sample?.id,
-          });
-        }
-      } catch (e) {
-        if (urlState === 'spa') {
-          spaSampleLocatorParamRef.current = null;
-        }
-        showOpenError(errorMessageFromUnknown(e, offlineIntl.formatMessage({ id: 'errors.loadFailed' })));
-      } finally {
-        setRemoteUrlBusy(false);
-      }
-    },
-    [appendFilesAsDatasets, clearOpenFeedback, offlineIntl, recordHistoryEntry, showOpenError, urlState],
-  );
-
-  const handleLocalTarFile = useCallback(
-    async (file: File) => {
-      clearOpenFeedback();
-      if (urlState === 'spa') {
-        spaSampleLocatorParamRef.current = null;
-      }
-      try {
-        const extracted = extractRosFilesFromTarArchive(await file.arrayBuffer());
-        if (extracted.length === 0) {
-          throw new Error(offlineIntl.formatMessage({ id: 'errors.noRecordingsInArchive' }));
-        }
-        appendFilesAsDatasets(extracted, true, undefined, true);
-        await recordHistoryEntry({
-          kind: 'local_tar',
-          displayName: file.name,
-          tarFingerprint: tarFileFingerprint(file),
-          detail: offlineIntl.formatMessage({ id: 'welcome.historyFileCount' }, { count: extracted.length }),
-        });
-      } catch (e) {
-        showOpenError(errorMessageFromUnknown(e, offlineIntl.formatMessage({ id: 'errors.loadFailed' })));
-      }
-    },
-    [appendFilesAsDatasets, clearOpenFeedback, offlineIntl, recordHistoryEntry, showOpenError, urlState],
-  );
-
-  const handleSelectSample = useCallback(
-    async (sample: SampleDataset) => {
-      const u = getArchiveUrl(sample).trim();
-      if (!u) return;
-      await handleOpenRemoteRecordingUrl(u, {
-        sample: { id: sample.id, title: sample.title || sample.name },
-      });
-    },
-    [handleOpenRemoteRecordingUrl],
-  );
-
-  const handleOpenRecordingFiles = useCallback(async () => {
-    clearOpenFeedback();
-    if (urlState === 'spa') {
-      spaSampleLocatorParamRef.current = null;
-    }
-    const picked = await pickRosRecordingFiles();
-    if (picked === null) {
-      document.getElementById(fileInputDomIdRef.current)?.click();
-      return;
-    }
-    if (picked.files.length === 0) {
-      return;
-    }
-    recordLocalRosFilesHistory(picked.files, picked.fileHandles);
-    appendFilesAsDatasets(picked.files, false, picked.files);
-  }, [appendFilesAsDatasets, clearOpenFeedback, recordLocalRosFilesHistory, urlState]);
-
-  const handleReplayHistory = useCallback(
-    async (id: string) => {
-      clearOpenFeedback();
-      const entry = await getDatasetHistoryEntry(id);
-      if (!entry) return;
-      switch (entry.kind) {
-        case 'url':
-        case 'remote_tar':
-        case 'sample': {
-          const u = entry.url?.trim();
-          if (!u) return;
-          if (entry.kind === 'sample' && entry.sampleId?.trim()) {
-            await handleOpenRemoteRecordingUrl(u, {
-              sample: { id: entry.sampleId.trim(), title: entry.displayName },
-            });
-            return;
-          }
-          await handleOpenRemoteRecordingUrl(u);
-          return;
-        }
-        case 'directory': {
-          if (urlState === 'spa') {
-            spaSampleLocatorParamRef.current = null;
-          }
-          const dh = entry.directoryHandle;
-          if (!dh) return;
-          const ok = await ensureReadPermission(dh);
-          if (!ok) {
-            showOpenError(offlineIntl.formatMessage({ id: 'welcome.historyPermissionDenied' }));
-            return;
-          }
-          try {
-            const out: File[] = [];
-            await walkDirectoryHandle(dh, 8, 0, out);
-            if (out.length === 0) {
-              showOpenError(offlineIntl.formatMessage({ id: 'welcome.historyEmptyDirectory' }));
-              return;
-            }
-            appendFilesAsDatasets(out, true, out, true);
-          } catch (e) {
-            showOpenError(errorMessageFromUnknown(e, offlineIntl.formatMessage({ id: 'errors.loadFailed' })));
-          }
-          return;
-        }
-        case 'files': {
-          if (urlState === 'spa') {
-            spaSampleLocatorParamRef.current = null;
-          }
-          const handles = entry.fileHandles ?? [];
-          if (handles.length === 0) {
-            document.getElementById(fileInputDomIdRef.current)?.click();
-            return;
-          }
-          for (const h of handles) {
-            const granted = await ensureReadPermission(h);
-            if (!granted) {
-              showOpenError(offlineIntl.formatMessage({ id: 'welcome.historyPermissionDenied' }));
-              return;
-            }
-          }
-          try {
-            const files = await Promise.all(handles.map((h) => h.getFile()));
-            const ros = files.filter((f) => isRosRecordingFilename(f.name));
-            if (ros.length === 0) {
-              showOpenError(offlineIntl.formatMessage({ id: 'welcome.historyNoSupportedRecordings' }));
-              return;
-            }
-            appendFilesAsDatasets(ros, true, ros, true);
-          } catch (e) {
-            showOpenError(errorMessageFromUnknown(e, offlineIntl.formatMessage({ id: 'errors.loadFailed' })));
-          }
-          return;
-        }
-        case 'directory_fallback':
-          void handleOpenDirectory();
-          return;
-        case 'file_meta':
-          document.getElementById(fileInputDomIdRef.current)?.click();
-          return;
-        case 'local_tar':
-          document.getElementById(tarInputDomIdRef.current)?.click();
-          return;
-        default:
-          return;
-      }
-    },
-    [
-      appendFilesAsDatasets,
-      clearOpenFeedback,
-      handleOpenDirectory,
-      handleOpenRemoteRecordingUrl,
-      offlineIntl,
-      showOpenError,
-      urlState,
-    ],
-  );
-
-  useEffect(() => {
-    if (urlState !== 'spa') return;
-    const raw = props.url?.trim();
-    if (!raw) return;
-    const loc = parseSourceLocator(raw);
-    if (!loc || loc.kind === 'remote') return;
-
-    const gen = ++spaUrlBootstrapGenRef.current;
-    let cancelled = false;
-
-    void (async () => {
-      setManualOpenHint(null);
-      if (loc.kind === 'sample') {
-        if (cancelled || spaUrlBootstrapGenRef.current !== gen) return;
-        if (!getSampleDatasetsManifestUrl()) {
-          showOpenError(offlineIntl.formatMessage({ id: 'welcome.sampleManifestNotConfigured' }));
-          return;
-        }
-        const samples = await loadSampleDatasets();
-        if (cancelled || spaUrlBootstrapGenRef.current !== gen) return;
-        const found = samples.find((s) => s.id === loc.sampleId);
-        if (!found) {
-          showOpenError(offlineIntl.formatMessage({ id: 'welcome.sampleIdNotFound' }, { id: loc.sampleId }));
-          return;
-        }
-        await handleSelectSample(found);
-        return;
-      }
-
-      const row = await getLatestReplayableHistoryByLocalLocator(loc);
-      if (cancelled || spaUrlBootstrapGenRef.current !== gen) return;
-      if (!row) {
-        setLastLoadError(null);
-        setManualOpenHint(
-          offlineIntl.formatMessage(
-            {
-              id:
-                loc.kind === 'local_folder'
-                  ? 'welcome.manualOpenFolderHint'
-                  : 'welcome.manualOpenFileHint',
-            },
-            { name: loc.displayName },
-          ),
-        );
-        return;
-      }
-      await handleReplayHistory(row.id);
-    })();
-
-    return () => {
-      cancelled = true;
-      spaUrlBootstrapGenRef.current += 1;
-    };
-  }, [urlState, props.url, handleReplayHistory, handleSelectSample, offlineIntl, showOpenError]);
-
-  const openRemotePrompt = useCallback(() => {
-    const url =
-      typeof window !== 'undefined' ? window.prompt(offlineIntl.formatMessage({ id: 'viewer.remoteUrlPrompt' })) : null;
-    if (url?.trim()) void handleOpenRemoteRecordingUrl(url.trim());
-  }, [handleOpenRemoteRecordingUrl, offlineIntl]);
-
-  const onSpaUrlQuerySync = props.onSpaUrlQuerySync;
-
-  const handleGoHome = useCallback(() => {
-    clearOpenFeedback();
-    spaSampleLocatorParamRef.current = null;
-    spaUrlBootstrapGenRef.current += 1;
-    setExtraDatasets([]);
-    setLoadedGroupId(null);
-    setRemoteUrlBusy(false);
-    if (urlState === 'spa') {
-      setActiveId(null);
-      pushSpaUrlParam(null);
-      onSpaUrlQuerySync?.();
-    }
-  }, [clearOpenFeedback, onSpaUrlQuerySync, urlState]);
+  const {
+    remoteUrlBusy,
+    handleDropRosRecordingFiles,
+    handleOpenDirectory,
+    handleDragOver,
+    handleDrop,
+    onDatasetSelect,
+    onAddFilesFromPicker,
+    handleOpenRemoteRecordingUrl,
+    handleLocalTarFile,
+    handleSelectSample,
+    handleOpenRecordingFiles,
+    handleReplayHistory,
+    openRemotePrompt,
+    handleGoHome,
+  } = useRecordingSourceActions(props, {
+    urlState,
+    appendFilesAsDatasets,
+    setExtraDatasets,
+    setActiveId,
+    setLoadedGroupId,
+    fileInputDomIdRef,
+    tarInputDomIdRef,
+    spaSampleLocatorParamRef,
+    offlineIntl,
+    clearOpenFeedback,
+    showOpenError,
+    setLastLoadError,
+    setManualOpenHint,
+    recordHistoryEntry,
+  });
 
   const layoutProvider = (children: React.ReactNode) => (
     <RosViewerLayoutProvider
@@ -1283,79 +187,40 @@ export const RosViewer: React.FC<RosViewerProps> = (props) => {
   if (!hasSource) {
     return layoutProvider(
       <RosViewProvider theme={currentTheme} language={currentLanguage}>
-        <div
-          className={cn('flex h-screen flex-col overflow-hidden bg-background text-foreground', props.className)}
+        <RosViewerLandingScreen
+          className={props.className}
           style={props.style}
+          fileInputId="rosview-landing-file"
+          tarInputId="rosview-landing-tar"
+          sourceName={effectiveSourceName}
+          sourceLoading={sourceLoading}
+          theme={currentTheme}
+          language={currentLanguage}
+          onThemeChange={handleThemeChange}
+          onLanguageChange={handleLanguageChange}
+          showLanguageSwitcher={props.showLanguageSwitcher ?? true}
+          showThemeSwitcher={props.showThemeSwitcher ?? true}
+          showNavbarBrand={props.showNavbarBrand ?? true}
+          navbarBrandLabel={props.navbarBrandLabel}
+          onBrandClick={handleGoHome}
           onDragOver={handleDragOver}
           onDrop={handleDrop}
-        >
-          <Navbar
-            sourceName={effectiveSourceName}
-            sourceLoading={sourceLoading}
-            theme={currentTheme}
-            language={currentLanguage}
-            onThemeChange={handleThemeChange}
-            onLanguageChange={handleLanguageChange}
-            showLanguageSwitcher={props.showLanguageSwitcher ?? true}
-            showThemeSwitcher={props.showThemeSwitcher ?? true}
-            showNavbarBrand={props.showNavbarBrand ?? true}
-            brandLabel={props.navbarBrandLabel}
-            onBrandClick={handleGoHome}
-            onOpenFilePick={() => {
-              clearOpenFeedback();
-              void handleOpenRecordingFiles();
-            }}
-            onOpenDirectory={handleOpenDirectory}
-            onOpenTarPick={() => document.getElementById('rosview-landing-tar')?.click()}
-            onOpenRemotePrompt={openRemotePrompt}
-            onOpenSampleDialog={() => setSampleDialogOpen(true)}
-            recentHistoryItems={historyItems.slice(0, 10)}
-            onReplayHistory={(id) => void handleReplayHistory(id)}
-          />
-          <WelcomeScreen
-            manualOpenHint={manualOpenHint}
-            onOpenFile={() => {
-              clearOpenFeedback();
-              void handleOpenRecordingFiles();
-            }}
-            onOpenDirectory={handleOpenDirectory}
-            onOpenTarPicker={() => document.getElementById('rosview-landing-tar')?.click()}
-            onSubmitRemoteUrl={handleOpenRemoteRecordingUrl}
-            remoteSubmitLoading={remoteUrlBusy}
-            onSelectSample={handleSelectSample}
-            historyItems={historyItems}
-            onReplayHistory={(id) => void handleReplayHistory(id)}
-          />
-          <input
-            id="rosview-landing-file"
-            type="file"
-            name="rosview-landing-file"
-            accept=".mcap,.bag,.db3,.hdf5,.h5,.bvh"
-            multiple
-            className="hidden"
-            onChange={(e) => {
-              onAddFilesFromPicker(e.target.files);
-              e.target.value = '';
-            }}
-          />
-          <input
-            id="rosview-landing-tar"
-            type="file"
-            name="rosview-landing-tar"
-            accept=".tar,.tgz,.tar.gz,application/x-tar"
-            className="hidden"
-            onChange={(e) => {
-              const f = e.target.files?.[0];
-              if (f) void handleLocalTarFile(f);
-              e.target.value = '';
-            }}
-          />
-          <SampleDatasetDialog
-            open={sampleDialogOpen}
-            onOpenChange={setSampleDialogOpen}
-            onSelect={handleSelectSample}
-          />
-        </div>
+          onAddFilesFromPicker={onAddFilesFromPicker}
+          onLocalTarSelected={handleLocalTarFile}
+          onOpenFilePick={() => void handleOpenRecordingFiles()}
+          onOpenDirectory={handleOpenDirectory}
+          onOpenRemotePrompt={openRemotePrompt}
+          onOpenSampleDialog={() => setSampleDialogOpen(true)}
+          onSubmitRemoteUrl={handleOpenRemoteRecordingUrl}
+          remoteSubmitLoading={remoteUrlBusy}
+          onSelectSample={handleSelectSample}
+          historyItems={historyItems}
+          onReplayHistory={(id) => void handleReplayHistory(id)}
+          manualOpenHint={manualOpenHint}
+          showLoadingSkeleton={false}
+          sampleDialogOpen={sampleDialogOpen}
+          onSampleDialogOpenChange={setSampleDialogOpen}
+        />
       </RosViewProvider>,
     );
   }
@@ -1363,6 +228,12 @@ export const RosViewer: React.FC<RosViewerProps> = (props) => {
   return layoutProvider(
     <RosViewProvider theme={currentTheme} language={currentLanguage}>
       <>
+        {/*
+          Rendered unconditionally (not just while the landing screen below
+          is shown): history replay can target `#rosview-inline-file` /
+          `#rosview-inline-tar` via `document.getElementById(...).click()`
+          even once a player exists and the landing screen has unmounted.
+        */}
         <input
           id="rosview-inline-file"
           type="file"
@@ -1387,71 +258,46 @@ export const RosViewer: React.FC<RosViewerProps> = (props) => {
             e.target.value = '';
           }}
         />
-        {!player ? (
-          <div
-            className={cn('flex h-screen flex-col overflow-hidden bg-background text-foreground', props.className)}
+        {player ? (
+          appShellElement
+        ) : (
+          <RosViewerLandingScreen
+            className={props.className}
             style={props.style}
+            fileInputId="rosview-inline-file"
+            tarInputId="rosview-inline-tar"
+            renderHiddenInputs={false}
+            sourceName={effectiveSourceName}
+            sourceLoading={sourceLoading}
+            theme={currentTheme}
+            language={currentLanguage}
+            onThemeChange={handleThemeChange}
+            onLanguageChange={handleLanguageChange}
+            showLanguageSwitcher={props.showLanguageSwitcher ?? true}
+            showThemeSwitcher={props.showThemeSwitcher ?? true}
+            showNavbarBrand={props.showNavbarBrand ?? true}
+            navbarBrandLabel={props.navbarBrandLabel}
+            onBrandClick={handleGoHome}
             onDragOver={handleDragOver}
             onDrop={handleDrop}
-          >
-            <Navbar
-              sourceName={effectiveSourceName}
-              sourceLoading={sourceLoading}
-              theme={currentTheme}
-              language={currentLanguage}
-              onThemeChange={handleThemeChange}
-              onLanguageChange={handleLanguageChange}
-              showLanguageSwitcher={props.showLanguageSwitcher ?? true}
-              showThemeSwitcher={props.showThemeSwitcher ?? true}
-              showNavbarBrand={props.showNavbarBrand ?? true}
-              brandLabel={props.navbarBrandLabel}
-              onBrandClick={handleGoHome}
-              onOpenFilePick={() => {
-                clearOpenFeedback();
-                void handleOpenRecordingFiles();
-              }}
-              onOpenDirectory={handleOpenDirectory}
-              onOpenTarPick={() => document.getElementById('rosview-inline-tar')?.click()}
-              onOpenRemotePrompt={openRemotePrompt}
-              onOpenSampleDialog={() => setSampleDialogOpen(true)}
-              recentHistoryItems={historyItems.slice(0, 10)}
-              onReplayHistory={(id) => void handleReplayHistory(id)}
-            />
-            {!lastLoadError && !manualOpenHint ? (
-              <div className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-                <div className="flex min-h-0 flex-1 flex-col gap-3 p-4">
-                  <Skeleton className="h-8 w-40" />
-                  <Skeleton className="min-h-0 flex-1 rounded-lg" />
-                </div>
-                <LoadingOverlay
-                  sourceName={loadingSourceName}
-                  onCancel={handleGoHome}
-                />
-              </div>
-            ) : (
-              <WelcomeScreen
-                manualOpenHint={manualOpenHint}
-                onOpenFile={() => {
-                  clearOpenFeedback();
-                  void handleOpenRecordingFiles();
-                }}
-                onOpenDirectory={handleOpenDirectory}
-                onOpenTarPicker={() => document.getElementById('rosview-inline-tar')?.click()}
-                onSubmitRemoteUrl={handleOpenRemoteRecordingUrl}
-                remoteSubmitLoading={remoteUrlBusy}
-                onSelectSample={handleSelectSample}
-                historyItems={historyItems}
-                onReplayHistory={(id) => void handleReplayHistory(id)}
-              />
-            )}
-            <SampleDatasetDialog
-              open={sampleDialogOpen}
-              onOpenChange={setSampleDialogOpen}
-              onSelect={handleSelectSample}
-            />
-          </div>
-        ) : (
-          appShellElement
+            onAddFilesFromPicker={onAddFilesFromPicker}
+            onLocalTarSelected={handleLocalTarFile}
+            onOpenFilePick={() => void handleOpenRecordingFiles()}
+            onOpenDirectory={handleOpenDirectory}
+            onOpenRemotePrompt={openRemotePrompt}
+            onOpenSampleDialog={() => setSampleDialogOpen(true)}
+            onSubmitRemoteUrl={handleOpenRemoteRecordingUrl}
+            remoteSubmitLoading={remoteUrlBusy}
+            onSelectSample={handleSelectSample}
+            historyItems={historyItems}
+            onReplayHistory={(id) => void handleReplayHistory(id)}
+            manualOpenHint={manualOpenHint}
+            showLoadingSkeleton={!lastLoadError}
+            loadingSourceName={loadingSourceName}
+            onCancelLoading={handleGoHome}
+            sampleDialogOpen={sampleDialogOpen}
+            onSampleDialogOpenChange={setSampleDialogOpen}
+          />
         )}
       </>
     </RosViewProvider>,

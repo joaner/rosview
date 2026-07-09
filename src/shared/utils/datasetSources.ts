@@ -31,6 +31,24 @@ export function datasetGroupKey(item: DatasetItem): string {
   return item.groupId ?? item.id;
 }
 
+/**
+ * Picks the group id that should be "active" given the current dataset
+ * list: keeps `current` if it still names a real, live group, otherwise
+ * falls back to the first dataset's group (or `null` if there are none).
+ *
+ * Kept as a pure function (rather than inlined in a `setState` updater) so
+ * it can be tested directly against `resolveAppendGroupId`'s output — the
+ * two must always agree on what the "real" group id is, or `activeId` ends
+ * up oscillating between them on every render (see the regression test
+ * `resolveAppendGroupId ↔ resolveActiveId agreement` in
+ * `datasetSources.test.ts`).
+ */
+export function resolveActiveId(datasets: DatasetItem[], current: string | null): string | null {
+  if (datasets.length === 0) return null;
+  if (current && datasets.some((d) => datasetGroupKey(d) === current)) return current;
+  return datasetGroupKey(datasets[0]);
+}
+
 export interface DatasetGroup {
   groupId: string;
   members: DatasetItem[];
@@ -61,6 +79,31 @@ export function createDatasetGroupId(): string {
   return `group:${Date.now().toString(36)}:${groupIdCounter}`;
 }
 
+/**
+ * Resolves the group id a batch of files should be tagged with when
+ * appending them as datasets under a forced-new-session id (history replay,
+ * tar extraction). If any of the files are already present in `existing`
+ * (matched by dataset id, regardless of which group they currently belong
+ * to), reuses that item's group id instead of `fallbackGroupId`.
+ *
+ * This matters because `dedupeDatasetItems`/`mergeDatasetLists` dedupe by
+ * `id` and keep the *first-seen* entry: a freshly minted `fallbackGroupId`
+ * would be silently discarded in favor of the already-stored item (which
+ * keeps its original group id), leaving the caller's `activeId` pointed at
+ * an "orphan" group that doesn't actually exist in the merged dataset list.
+ */
+export function resolveAppendGroupId(
+  existing: DatasetItem[],
+  files: File[],
+  fallbackGroupId: string,
+): string {
+  const existingById = new Map(existing.map((d) => [d.id, d]));
+  const existingGroupId = files
+    .map((f) => existingById.get(fileDatasetId(f))?.groupId)
+    .find((id): id is string => id != null);
+  return existingGroupId ?? fallbackGroupId;
+}
+
 /** One row from host `fileManifest` or remote dataset JSON. */
 export type FileListItem = {
   url: string;
@@ -80,9 +123,14 @@ function fileKey(file: File): string {
   return `${file.name}:${file.size}:${file.lastModified}`;
 }
 
+/** Stable dataset id for a `File`, matching how `makeFileDataset` ids items. */
+export function fileDatasetId(file: File): string {
+  return `file:${fileKey(file)}`;
+}
+
 function makeFileDataset(file: File): DatasetItem {
   return {
-    id: `file:${fileKey(file)}`,
+    id: fileDatasetId(file),
     kind: 'file',
     name: file.name,
     file,
