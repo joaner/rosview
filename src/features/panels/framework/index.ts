@@ -13,6 +13,8 @@ export type {
 } from './foxgloveAdapter';
 export { TopicQuickPicker } from './TopicQuickPicker';
 export type { TopicQuickPickerProps } from './TopicQuickPicker';
+export { PanelTopicBar } from './PanelTopicBar';
+export type { PanelTopicBarProps } from './PanelTopicBar';
 export { PanelErrorBoundary } from './PanelErrorBoundary';
 export { PanelRuntimeShell } from './PanelRuntimeShell';
 export {

@@ -19,6 +19,7 @@ import { isH264MessageEvent, toWorkerFrame } from './core/messageFrameAdapter';
 import { applyDepthTopicPreset } from './core/depthColorDefaults';
 import type { ImageConfig } from './defaults';
 import { TopicQuickPicker } from '../framework/TopicQuickPicker';
+import { PanelTopicBar } from '../framework/PanelTopicBar';
 import ImageRenderWorkerClass from './core/ImageRender.worker.ts?worker&inline';
 
 type ColorOptions = Pick<ImageConfig, 'colorMode' | 'flatColor' | 'gradient' | 'colorMap' | 'explicitAlpha' | 'minValue' | 'maxValue'>;
@@ -304,7 +305,7 @@ export const ImagePanel: React.FC<ImagePanelProps> = (props) => {
       style={{ background: backgroundColor }}
       data-testid="image-panel"
     >
-      <div className="flex shrink-0 items-center gap-2 border-b border-zinc-800 bg-zinc-950">
+      <PanelTopicBar className="border-zinc-800 bg-zinc-950">
         <TopicQuickPicker
           value={topic}
           onChange={(nextTopic) => setConfig((prev) => applyDepthTopicPreset(nextTopic, prev))}
@@ -313,7 +314,7 @@ export const ImagePanel: React.FC<ImagePanelProps> = (props) => {
           className="min-w-0 flex-1"
           triggerClassName="border-zinc-700 bg-zinc-950 text-zinc-100 hover:bg-zinc-900 hover:text-zinc-50"
         />
-      </div>
+      </PanelTopicBar>
       <div
         ref={viewportRef}
         className="flex-1 relative min-h-0 min-w-0 flex items-center justify-center"

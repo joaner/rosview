@@ -12,6 +12,7 @@ import { isRosImageSchema } from '@/shared/ros/rosMessageTypes';
 import { formatLocalTimestamp } from '@/shared/utils/time';
 import { scheduleFrame } from '@/shared/utils/rafScheduler';
 import { TopicQuickPicker } from '../framework/TopicQuickPicker';
+import { PanelTopicBar } from '../framework/PanelTopicBar';
 import type { RawMessagesConfig } from './defaults';
 import { buildRowsForMessageEvent, type FlatRow } from './shapeTree';
 
@@ -705,7 +706,7 @@ export const RawMessagesPanel: React.FC<RawMessagesPanelProps> = ({
 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-background">
-      <div className="shrink-0 border-b bg-muted px-2 py-1">
+      <PanelTopicBar>
         <TopicQuickPicker
           value={topic}
           topics={topics}
@@ -713,7 +714,7 @@ export const RawMessagesPanel: React.FC<RawMessagesPanelProps> = ({
           placeholder={formatMessage({ id: 'panels.framework.topicPicker.placeholder' })}
           className="min-w-0 w-full"
         />
-      </div>
+      </PanelTopicBar>
 
       <div
         ref={viewportRef}
