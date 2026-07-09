@@ -97,10 +97,20 @@ test.describe('multi-source merge', () => {
       page.getByRole('button', { name: '/analysis/hand_pose_overlay/compressed', exact: true }),
     ).toBeVisible({ timeout: 30_000 });
 
-    await expect(page.getByText('Merged test_multi_incremental.mcap into the current session')).toBeVisible({
-      timeout: 30_000,
-    });
-    await expect(page.getByRole('button', { name: 'Switch to replace instead' })).toBeVisible();
+    const message = page.getByText('Merged test_multi_incremental.mcap into the current session');
+    await expect(message).toBeVisible({ timeout: 30_000 });
+    const action = page.getByRole('button', { name: 'Switch to replace instead' });
+    await expect(action).toBeVisible();
+
+    // Stacked (message on top, full-width action below) rather than sonner's
+    // default cramped side-by-side row: the action button spans (almost) the
+    // full toast width once the layout is vertical.
+    const toastRoot = page.locator('[data-sonner-toast]').first();
+    await expect(async () => {
+      const toastBox = await toastRoot.boundingBox();
+      const actionBox = await action.boundingBox();
+      expect(toastBox && actionBox && actionBox.width > toastBox.width * 0.8).toBe(true);
+    }).toPass({ timeout: 5_000 });
   });
 
   test('clicking "switch to replace" detaches the newly-added file into its own session', async ({ page }) => {

@@ -84,6 +84,16 @@ function notifyMergeWithUndo(
   const addedIds = new Set(result.addedItemIds);
   toast(offlineIntl.formatMessage({ id: 'viewer.mergeToast.message' }, { name: displayName }), {
     duration: 8000,
+    // Stack the message above the action instead of sonner's default
+    // side-by-side row, which reads as cramped once the message text wraps
+    // to more than one line. `!important` is needed because sonner's own
+    // (higher-specificity, attribute-selector) base styles set
+    // align-items/gap/margin directly; scoped to this toast only, so
+    // simple toast.error()/toast.success() calls elsewhere are unaffected.
+    classNames: {
+      toast: '!flex-col !items-stretch !gap-2.5',
+      actionButton: '!ml-0 !mr-0 !w-full !justify-center',
+    },
     action: {
       label: offlineIntl.formatMessage({ id: 'viewer.mergeToast.action' }),
       onClick: () => {
