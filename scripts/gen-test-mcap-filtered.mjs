@@ -5,11 +5,11 @@
  * multi-source-merge test plan's requirement to exercise `mcap filter` for
  * fixture generation.
  *
- * Requires gen-test-mcap-multi-base.mjs to have run first. Skips gracefully
- * (exit 0, no output file) when the `mcap` CLI isn't on PATH, so contributors
- * without it installed still get every other fixture; tests that depend on
- * this file self-skip when it's absent. CI installs the CLI so it always
- * runs there (see .github/workflows/ci.yml).
+ * The `mcap` CLI is a local-only debugging tool and is intentionally *not*
+ * installed in CI. Requires gen-test-mcap-multi-base.mjs to have run first.
+ * Skips gracefully (exit 0, no output file) when the `mcap` CLI isn't on
+ * PATH, so contributors (and CI) without it installed still get every other
+ * fixture; tests that depend on this file self-skip when it's absent.
  */
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';

@@ -40,7 +40,7 @@ Vitest layout round-trip tests import JSON directly from `test-fixtures/layouts/
 
 Two fixtures depend on a tool that isn't an npm package. Their generator scripts detect absence and skip (exit 0, no output file) rather than failing the whole `gen:e2e:fixtures` run; Playwright specs that need one of these files check for it and `test.skip()` themselves when it's missing.
 
-- **`mcap` CLI** (Rust rewrite, `mcap --version` ≥ 0.1) — needed only to (re)generate `test_multi_filtered.mcap` via `mcap filter`. Install with `brew install mcap` or download a binary from <https://github.com/foxglove/mcap/releases?q=mcap-cli>. CI installs it explicitly (see `.github/workflows/ci.yml`), so this fixture and its tests always run there.
+- **`mcap` CLI** (Rust rewrite, `mcap --version` ≥ 0.1) — a local-only debugging tool, needed only to (re)generate `test_multi_filtered.mcap` via `mcap filter`. Install with `brew install mcap` or download a binary from <https://github.com/foxglove/mcap/releases?q=mcap-cli>. **CI does not install it**: `test_multi_filtered.mcap` and the one Playwright spec that depends on it simply skip there; everything else runs normally.
 - **`rosbags`** Python package — needed only to *regenerate* the committed `test-fixtures/media/minimal-multi.bag` source (e.g. after changing its schema in `scripts/gen-test-bag.py`); `npm run gen:e2e:fixtures` just copies that committed file into `public/examples/test_multi.bag`, so CI and most contributors never need to install it. If you do: `pip install rosbags`.
 
 For sample deep links (`?url=sample://…`), set `VITE_SAMPLE_DATASETS_MANIFEST_URL` in `.env` to a reachable JSON manifest (see `src/services/sampleDatasets.ts`).
