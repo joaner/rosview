@@ -17,6 +17,7 @@ import { writePreferences } from '@/core/preferences/readWritePreferences';
 import type { RosViewExtension, RosViewExtensionContext, SidebarTabContribution } from '@/core/extensions/types';
 import { SidebarExtensionHost } from '@/features/extensions/SidebarExtensionHost';
 import type { DatasetItem } from '@/shared/utils/datasetSources';
+import { groupDatasets } from '@/shared/utils/datasetSources';
 import { formatBytes } from '@/shared/utils/formatBytes';
 import { cn } from '@/shared/lib/utils';
 
@@ -88,6 +89,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   );
 
   const showDatasetsTab = datasets.length !== 1;
+  /** One row per merged session; a standalone file is a group of one. */
+  const datasetGroups = useMemo(() => groupDatasets(datasets), [datasets]);
 
   const tabValue = !showDatasetsTab && activeTab === 'datasets' ? 'topics' : activeTab;
 
@@ -235,18 +238,28 @@ export const Sidebar: React.FC<SidebarProps> = ({
           >
             <ScrollArea className="flex-1 min-h-0">
               <div className="border-b border-border/50">
-                {datasets.length > 0 ? (
-                  datasets.map((dataset) => {
-                    const isActive = dataset.id === activeDatasetId;
-                    const sizeBytes =
-                      dataset.kind === 'file' ? dataset.file?.size : dataset.sizeBytes;
-                    const sizeLabel = formatBytes(sizeBytes) ?? '—';
-                    const rowTitle = [dataset.name, dataset.kind === 'url' ? dataset.url : undefined, sizeLabel]
+                {datasetGroups.length > 0 ? (
+                  datasetGroups.map((group) => {
+                    const isActive = group.groupId === activeDatasetId;
+                    const primary = group.members[0];
+                    const isMerged = group.members.length > 1;
+                    const totalSizeBytes = group.members.reduce((sum, m) => {
+                      const size = m.kind === 'file' ? m.file?.size : m.sizeBytes;
+                      return sum + (typeof size === 'number' ? size : 0);
+                    }, 0);
+                    const sizeLabel = formatBytes(totalSizeBytes) ?? '—';
+                    const displayName = isMerged
+                      ? `${primary.name} +${String(group.members.length - 1)}`
+                      : primary.name;
+                    const rowTitle = [
+                      ...group.members.map((m) => (m.kind === 'url' ? m.url ?? m.name : m.name)),
+                      sizeLabel,
+                    ]
                       .filter(Boolean)
                       .join('\n');
                     return (
                       <div
-                        key={dataset.id}
+                        key={group.groupId}
                         className={cn(
                           'flex w-full flex-col border-b border-border/50 text-left text-xs transition-colors',
                           'hover:bg-accent/35',
@@ -257,27 +270,40 @@ export const Sidebar: React.FC<SidebarProps> = ({
                           type="button"
                           title={rowTitle}
                           aria-current={isActive ? 'true' : undefined}
-                          onClick={() => onDatasetSelect(dataset.id)}
+                          onClick={() => onDatasetSelect(group.groupId)}
                           className={cn(
                             'flex w-full cursor-pointer items-center gap-3 p-2 outline-none',
                             'focus-visible:ring-1 focus-visible:ring-ring/50',
                           )}
                         >
-                          <div className="h-9 min-w-0 flex-1 overflow-hidden text-left">
+                          <div className="min-w-0 flex-1 overflow-hidden text-left">
                             <div className="line-clamp-2 break-words text-[12px] font-medium leading-[18px] text-foreground">
-                              {dataset.name}
-                              {dataset.kind === 'url' && dataset.url ? (
+                              {displayName}
+                              {!isMerged && primary.kind === 'url' && primary.url ? (
                                 <>
                                   <br />
                                   <span className="text-[10px] font-normal leading-[18px] text-muted-foreground">
-                                    {dataset.url}
+                                    {primary.url}
                                   </span>
                                 </>
                               ) : null}
                             </div>
+                            {isMerged ? (
+                              <div className="line-clamp-3 break-words text-[10px] font-normal leading-[16px] text-muted-foreground">
+                                {group.members.map((m) => m.name).join(' · ')}
+                              </div>
+                            ) : null}
                           </div>
-                          <div className="flex h-9 shrink-0 items-center justify-end whitespace-nowrap text-right font-mono text-[10px] leading-[18px] text-muted-foreground tabular-nums">
-                            {sizeLabel}
+                          <div className="flex shrink-0 flex-col items-end justify-center gap-0.5 whitespace-nowrap text-right font-mono text-[10px] leading-[14px] text-muted-foreground tabular-nums">
+                            <span>{sizeLabel}</span>
+                            {isMerged ? (
+                              <span>
+                                {formatMessage(
+                                  { id: 'sidebar.datasetGroup.fileCount' },
+                                  { count: group.members.length },
+                                )}
+                              </span>
+                            ) : null}
                           </div>
                         </button>
                       </div>

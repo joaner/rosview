@@ -8,6 +8,8 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/shared/ui/dropdown-menu';
 import { getTopicMetricLines } from './topicMetrics';
@@ -126,6 +128,17 @@ export const TopicRow: React.FC<TopicRowProps> = ({ topic, isSelected, onSelect 
               <DropdownMenuItem className="text-xs" onSelect={handleCopySchemaName}>
                 {formatMessage({ id: 'sidebar.topicRow.copySchemaName' })}
               </DropdownMenuItem>
+              {topic.sourceLabels && topic.sourceLabels.length > 0 ? (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
+                    {formatMessage(
+                      { id: 'sidebar.topicRow.sourceFiles' },
+                      { files: topic.sourceLabels.join(', ') },
+                    )}
+                  </DropdownMenuLabel>
+                </>
+              ) : null}
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
