@@ -18,14 +18,18 @@ import { LoadingOverlay } from '@/features/workspace/common/LoadingOverlay';
 import { Skeleton } from '@/shared/ui/skeleton';
 import type { DatasetItem, FileListItem } from '@/shared/utils/datasetSources';
 import {
+  createDatasetGroupId,
+  datasetGroupKey,
   datasetItemsFromListItems,
   dedupeDatasetItems,
   filterRosFilesFromFileList,
+  groupDatasets,
   isRosRecordingFilename,
   mergeDatasetLists,
   normalizeRosViewSources,
   parseRemoteDatasetListJson,
 } from '@/shared/utils/datasetSources';
+import { CombinedSourceProxy, type CombinedSourceMember } from '@/infra/workers/CombinedSourceProxy';
 import {
   collectRosFilesFromUserDirectoryChoice,
   walkDirectoryHandle,
@@ -110,12 +114,11 @@ async function createWorkerForExtension(ext: string | undefined): Promise<Worker
   return new McapWorkerClass();
 }
 
-async function initializePlayerForDataset(
-  player: IterablePlayer,
+async function buildInitArgsForDataset(
   ds: DatasetItem,
   ext: string | undefined,
   autoDataQualityScan: boolean,
-): Promise<void> {
+): Promise<Record<string, unknown>> {
   const workerPerf =
     typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('workerPerf') === '1';
   const sqlWasmBinary = ext === 'db3' ? await loadSqlWasmBinary() : undefined;
@@ -143,33 +146,48 @@ async function initializePlayerForDataset(
     ) {
       init.knownTotalBytes = Math.floor(ds.sizeBytes);
     }
-    await player.initialize(init);
-    return;
+    return init;
   }
   if (ds.kind === 'file' && ds.file) {
     const siblingFiles = ds.siblingFiles?.filter((file) => isRosRecordingFilename(file.name)) ?? [];
     const files = siblingFiles.length > 0 ? siblingFiles : [ds.file];
     if (ext === 'bag' || ext === 'db3') {
-      await player.initialize({
+      return {
         file: ds.file,
         files,
         workerPerf,
         autoDataQualityScan,
         ...(sqlWasmBinary ? { sqlWasmBinary } : {}),
         ...(zstdWasmBinary ? { zstdWasmBinary } : {}),
-      });
-    } else {
-      await player.initialize({
-        file: ds.file,
-        workerPerf,
-        autoDataQualityScan,
-        ...(hdf5WasmBinary ? { hdf5WasmBinary } : {}),
-        ...(zstdWasmBinary ? { zstdWasmBinary } : {}),
-      });
+      };
     }
-    return;
+    return {
+      file: ds.file,
+      workerPerf,
+      autoDataQualityScan,
+      ...(hdf5WasmBinary ? { hdf5WasmBinary } : {}),
+      ...(zstdWasmBinary ? { zstdWasmBinary } : {}),
+    };
   }
   throw new Error('Invalid dataset item');
+}
+
+/**
+ * Creates a Worker + `WorkerSerializedSource` + init args for one dataset
+ * member. Shared by both the single-file fast path and the multi-file
+ * `CombinedSourceProxy` path so a group of 1 behaves byte-for-byte like
+ * today's single-source loading.
+ */
+async function prepareSourceMember(
+  ds: DatasetItem,
+  autoDataQualityScan: boolean,
+): Promise<{ member: CombinedSourceMember; ext: string | undefined }> {
+  const ext = extensionForDataset(ds);
+  const worker = await createWorkerForExtension(ext);
+  worker.onerror = (ev) => console.error('MAIN: Worker error', ev);
+  const initArgs = await buildInitArgsForDataset(ds, ext, autoDataQualityScan);
+  const source = new WorkerSerializedSource(worker);
+  return { member: { label: ds.name, source, initArgs }, ext };
 }
 
 /** Try indices in order: startIdx .. end-1, then 0 .. startIdx-1 */
@@ -194,7 +212,8 @@ function propsSignature(props: RosViewerProps): string {
       : typeof props.fileManifest === 'string'
         ? props.fileManifest.trim()
         : JSON.stringify(props.fileManifest);
-  return `${urlState}|${urls}|${url}|${files}|${file}|${fileListSig}`;
+  const mergeSources = props.mergeSources ? '1' : '0';
+  return `${urlState}|${urls}|${url}|${files}|${file}|${fileListSig}|${mergeSources}`;
 }
 
 function initialUiFromProps(p: RosViewerProps) {
@@ -223,6 +242,13 @@ export interface RosViewerProps {
   file?: File;
   urls?: string[];
   files?: File[];
+  /**
+   * When `true`, every dataset produced from `file`/`files`/`url`/`urls`/
+   * `fileManifest` is merged into a single multi-source session (topics and
+   * time range unioned) instead of the default "list + switch" behavior.
+   * @default false
+   */
+  mergeSources?: boolean;
   theme?: 'light' | 'dark' | 'system';
   language?: 'en' | 'zh' | 'ja';
   /** CSS class applied to the outermost container element. */
@@ -336,6 +362,7 @@ export const RosViewer: React.FC<RosViewerProps> = (props) => {
         url: isCustomLocalLocatorString(props.url) ? undefined : props.url,
         urls: urlState === 'spa' ? undefined : props.urls,
         fileManifest: Array.isArray(props.fileManifest) ? props.fileManifest : undefined,
+        mergeSources: props.mergeSources,
       }),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- propSig fingerprints File identity and source props
     [propSig, urlState],
@@ -384,15 +411,16 @@ export const RosViewer: React.FC<RosViewerProps> = (props) => {
     onFatalErrorRef.current = props.onFatalError;
   }, [props.onFatalError]);
 
+  /** Holds a group key (see `datasetGroupKey`); a standalone dataset is a group of one. */
   const [activeId, setActiveId] = useState<string | null>(null);
-  /** When fallback loads a non-selected dataset, highlights it in the sidebar without re-running the activeId load effect. */
-  const [loadedDatasetId, setLoadedDatasetId] = useState<string | null>(null);
+  /** When fallback loads a non-selected group, highlights it in the sidebar without re-running the activeId load effect. */
+  const [loadedGroupId, setLoadedGroupId] = useState<string | null>(null);
   const [lastLoadError, setLastLoadError] = useState<string | null>(null);
   const [manualOpenHint, setManualOpenHint] = useState<string | null>(null);
 
   useEffect(() => {
     setExtraDatasets([]);
-    setLoadedDatasetId(null);
+    setLoadedGroupId(null);
     setManualOpenHint(null);
   }, [propSig]);
 
@@ -492,27 +520,39 @@ export const RosViewer: React.FC<RosViewerProps> = (props) => {
     if (props.language != null) setCurrentLanguage(props.language);
   }, [props.language]);
 
+  const groups = useMemo(() => groupDatasets(datasets), [datasets]);
+
   useEffect(() => {
     if (datasets.length === 0) {
       setActiveId(null);
       return;
     }
     setActiveId((prev) => {
-      if (prev && datasets.some((d) => d.id === prev)) return prev;
-      return datasets[0].id;
+      if (prev && datasets.some((d) => datasetGroupKey(d) === prev)) return prev;
+      return datasetGroupKey(datasets[0]);
     });
   }, [datasets]);
 
-  const resolvedDatasetId = loadedDatasetId ?? activeId;
-  const activeDataset = useMemo(
-    () => (resolvedDatasetId ? datasets.find((d) => d.id === resolvedDatasetId) ?? null : null),
-    [datasets, resolvedDatasetId],
-  );
+  /** Members of the group the load effect targets, stable while unrelated datasets change. */
+  const activeGroupMembersKey = useMemo(() => {
+    const resolvedGroupId = loadedGroupId ?? activeId;
+    const group = groups.find((g) => g.groupId === resolvedGroupId);
+    return group ? group.members.map((m) => m.id).join('\u0000') : '';
+  }, [groups, loadedGroupId, activeId]);
 
-  const loadingSourceName = activeDataset
-    ? activeDataset.kind === 'url'
-      ? activeDataset.url
-      : activeDataset.file?.name
+  const resolvedDatasetId = loadedGroupId ?? activeId;
+  const activeGroup = useMemo(
+    () => (resolvedDatasetId ? groups.find((g) => g.groupId === resolvedDatasetId) ?? null : null),
+    [groups, resolvedDatasetId],
+  );
+  const activeDataset = activeGroup?.members[0] ?? null;
+
+  const loadingSourceName = activeGroup
+    ? activeGroup.members.length > 1
+      ? `${activeGroup.members[0].name} +${String(activeGroup.members.length - 1)}`
+      : activeDataset?.kind === 'url'
+        ? activeDataset.url
+        : activeDataset?.file?.name
     : undefined;
   const effectiveSourceName = props.navbarSourceName ?? loadingSourceName;
 
@@ -565,27 +605,44 @@ export const RosViewer: React.FC<RosViewerProps> = (props) => {
     tarInputDomIdRef.current = hasSource ? 'rosview-inline-tar' : 'rosview-landing-tar';
   }, [hasSource]);
 
-  const appendFilesAsDatasets = useCallback((files: File[], focusFirstNew = true, groupFiles?: File[]) => {
+  const appendFilesAsDatasets = useCallback((
+    files: File[],
+    focusFirstNew = true,
+    groupFiles?: File[],
+    forceNewSession = false,
+  ) => {
     const siblingFiles = groupFiles && groupFiles.length > 1 ? [...groupFiles] : undefined;
+    // Default behavior: new recording files merge into whatever session is
+    // currently active (topics/time-range union), matching the common
+    // "open base recording, later add an incrementally-produced file"
+    // workflow. When nothing is active yet, the whole batch becomes one
+    // fresh session together. `forceNewSession` opts out (used by
+    // tar-archive extraction and history replay, which represent opening a
+    // self-contained recording bundle rather than adding to the workspace).
+    const currentGroups = groupDatasets(datasetsRef.current);
+    const hasActiveGroup =
+      !forceNewSession && activeId != null && currentGroups.some((g) => g.groupId === activeId);
+    const groupId = hasActiveGroup ? activeId : createDatasetGroupId();
     const items = dedupeDatasetItems(
       files.map((f) => ({
         id: `file:${f.name}:${f.size}:${f.lastModified}`,
         kind: 'file' as const,
         name: f.name,
         file: f,
+        groupId,
         ...(siblingFiles ? { siblingFiles } : {}),
       })),
     );
     setExtraDatasets((prev) => mergeDatasetLists(prev, items));
     if (items.length > 0 && focusFirstNew) {
-      setActiveId(items[0].id);
-      setLoadedDatasetId(null);
+      setActiveId(groupId);
+      setLoadedGroupId(null);
       clearOpenFeedback();
     } else if (items.length > 0) {
-      setLoadedDatasetId(null);
+      setLoadedGroupId(null);
       clearOpenFeedback();
     }
-  }, [clearOpenFeedback]);
+  }, [activeId, clearOpenFeedback]);
 
   const recordLocalRosFilesHistory = useCallback(
     (files: File[], fileHandles?: FileSystemFileHandle[]) => {
@@ -707,8 +764,8 @@ export const RosViewer: React.FC<RosViewerProps> = (props) => {
       return;
     }
 
-    const datasetsLive = datasetsRef.current;
-    if (!datasetsLive.find((d) => d.id === activeId)) {
+    const groupsLive = groupDatasets(datasetsRef.current);
+    if (!groupsLive.find((g) => g.groupId === activeId)) {
       setPlayer(null);
       return;
     }
@@ -718,49 +775,66 @@ export const RosViewer: React.FC<RosViewerProps> = (props) => {
 
     const run = async () => {
       setLastLoadError(null);
-      const startIdx = datasetsLive.findIndex((d) => d.id === activeId);
-      const order = fallbackIndexOrder(datasetsLive.length, startIdx >= 0 ? startIdx : 0);
+      const startIdx = groupsLive.findIndex((g) => g.groupId === activeId);
+      const order = fallbackIndexOrder(groupsLive.length, startIdx >= 0 ? startIdx : 0);
       let lastErr: unknown = null;
+      const autoDataQualityScan =
+        persistence === 'localStorage' && readPreferences()?.autoDataQualityScan === true;
 
       for (const idx of order) {
         if (cancelled) return;
-        const ds = datasetsLive[idx];
-        const ext = extensionForDataset(ds);
-        const worker = await createWorkerForExtension(ext);
+        const group = groupsLive[idx];
+
+        let preparedMembers: CombinedSourceMember[];
+        try {
+          const prepared = await Promise.all(
+            group.members.map((ds) => prepareSourceMember(ds, autoDataQualityScan)),
+          );
+          preparedMembers = prepared.map((p) => p.member);
+        } catch (err) {
+          if (cancelled) return;
+          lastErr = err;
+          continue;
+        }
         if (cancelled) {
-          worker.terminate();
+          for (const m of preparedMembers) m.source.terminate();
           return;
         }
-        worker.onerror = (ev) => console.error('MAIN: Worker error', ev);
 
-        const source = new WorkerSerializedSource(worker);
-        const newPlayer = new IterablePlayer(source);
+        // A group of one uses `WorkerSerializedSource` directly, matching
+        // today's single-file path byte-for-byte; only 2+ members go through
+        // `CombinedSourceProxy`.
+        const newPlayer =
+          preparedMembers.length === 1
+            ? new IterablePlayer(preparedMembers[0].source)
+            : new IterablePlayer(new CombinedSourceProxy(preparedMembers));
         createdPlayer = newPlayer;
         if (!cancelled) setPlayer(newPlayer);
-        const autoDataQualityScan =
-          persistence === 'localStorage' && readPreferences()?.autoDataQualityScan === true;
 
         try {
-          await initializePlayerForDataset(newPlayer, ds, ext, autoDataQualityScan);
+          const initArgs = preparedMembers.length === 1 ? preparedMembers[0].initArgs : {};
+          await newPlayer.initialize(initArgs);
           if (cancelled) {
             newPlayer.close();
             createdPlayer = null;
             return;
           }
           // Do not call setActiveId here: it would re-run this effect's cleanup and close the player we just opened (multi-source fallback).
-          setLoadedDatasetId(ds.id !== activeId ? ds.id : null);
+          setLoadedGroupId(group.groupId !== activeId ? group.groupId : null);
           clearOpenFeedback();
           if (urlState === 'spa') {
             const sampleParam = spaSampleLocatorParamRef.current;
             if (sampleParam) {
               pushSpaUrlParam(sampleParam);
               spaSampleLocatorParamRef.current = null;
-            } else {
-              const loc = datasetItemToSourceLocator(ds);
+            } else if (group.members.length === 1) {
+              const loc = datasetItemToSourceLocator(group.members[0]);
               if (loc) {
                 pushSpaUrlParam(serializeSourceLocator(loc));
               }
             }
+            // Merged multi-file sessions have no single `?url=` locator to
+            // round-trip; the address bar keeps whatever it last showed.
           }
           return;
         } catch (err) {
@@ -794,12 +868,24 @@ export const RosViewer: React.FC<RosViewerProps> = (props) => {
       createdPlayer?.close();
       setPlayer(null);
     };
-  }, [activeId, clearOpenFeedback, hasSource, offlineIntl, persistence, requireSource, showOpenError, urlState]);
+    // `activeGroupMembersKey` is not read directly but forces a rebuild when
+    // files are added to (or removed from) the currently active group.
+  }, [
+    activeId,
+    activeGroupMembersKey,
+    clearOpenFeedback,
+    hasSource,
+    offlineIntl,
+    persistence,
+    requireSource,
+    showOpenError,
+    urlState,
+  ]);
 
   const onDatasetSelect = useCallback(
     (id: string) => {
       clearOpenFeedback();
-      setLoadedDatasetId(null);
+      setLoadedGroupId(null);
       if (urlState === 'spa') {
         spaSampleLocatorParamRef.current = null;
       }
@@ -866,7 +952,7 @@ export const RosViewer: React.FC<RosViewerProps> = (props) => {
           if (extracted.length === 0) {
             throw new Error(offlineIntl.formatMessage({ id: 'errors.noRecordingsInArchive' }));
           }
-          appendFilesAsDatasets(extracted);
+          appendFilesAsDatasets(extracted, true, undefined, true);
           const tail = resolved.split('/').pop() || resolved;
           await recordHistoryEntry({
             kind: meta?.sample ? 'sample' : 'remote_tar',
@@ -878,7 +964,7 @@ export const RosViewer: React.FC<RosViewerProps> = (props) => {
         } else {
           setExtraDatasets((prev) => mergeDatasetLists(prev, normalizeRosViewSources({ url: resolved })));
           setActiveId(`url:${resolved}`);
-          setLoadedDatasetId(null);
+          setLoadedGroupId(null);
           const tail = resolved.split('/').pop() || resolved;
           await recordHistoryEntry({
             kind: meta?.sample ? 'sample' : 'url',
@@ -910,7 +996,7 @@ export const RosViewer: React.FC<RosViewerProps> = (props) => {
         if (extracted.length === 0) {
           throw new Error(offlineIntl.formatMessage({ id: 'errors.noRecordingsInArchive' }));
         }
-        appendFilesAsDatasets(extracted);
+        appendFilesAsDatasets(extracted, true, undefined, true);
         await recordHistoryEntry({
           kind: 'local_tar',
           displayName: file.name,
@@ -990,7 +1076,7 @@ export const RosViewer: React.FC<RosViewerProps> = (props) => {
               showOpenError(offlineIntl.formatMessage({ id: 'welcome.historyEmptyDirectory' }));
               return;
             }
-            appendFilesAsDatasets(out, true, out);
+            appendFilesAsDatasets(out, true, out, true);
           } catch (e) {
             showOpenError(errorMessageFromUnknown(e, offlineIntl.formatMessage({ id: 'errors.loadFailed' })));
           }
@@ -1019,7 +1105,7 @@ export const RosViewer: React.FC<RosViewerProps> = (props) => {
               showOpenError(offlineIntl.formatMessage({ id: 'welcome.historyNoSupportedRecordings' }));
               return;
             }
-            appendFilesAsDatasets(ros, true, ros);
+            appendFilesAsDatasets(ros, true, ros, true);
           } catch (e) {
             showOpenError(errorMessageFromUnknown(e, offlineIntl.formatMessage({ id: 'errors.loadFailed' })));
           }
@@ -1117,7 +1203,7 @@ export const RosViewer: React.FC<RosViewerProps> = (props) => {
     spaSampleLocatorParamRef.current = null;
     spaUrlBootstrapGenRef.current += 1;
     setExtraDatasets([]);
-    setLoadedDatasetId(null);
+    setLoadedGroupId(null);
     setRemoteUrlBusy(false);
     if (urlState === 'spa') {
       setActiveId(null);

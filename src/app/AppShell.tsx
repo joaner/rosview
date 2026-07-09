@@ -4,6 +4,7 @@ import { Navbar } from '@/features/workspace/navbar/Navbar';
 import { RosViewContent } from '@/features/viewer/RosViewContent';
 import type { Player } from '@/core/types/player';
 import type { DatasetItem } from '@/shared/utils/datasetSources';
+import { datasetGroupKey } from '@/shared/utils/datasetSources';
 import type { PreferencePersistence } from '@/core/preferences/types';
 import type { SampleDataset } from '@/services/sampleDatasets';
 import type { DatasetHistoryListItem } from '@/shared/utils/datasetHistory';
@@ -191,7 +192,7 @@ export const AppShell: React.FC<AppShellProps> = ({
         hostContext={hostContext}
         locale={language}
         theme={theme}
-        activeDataset={datasets.find((item) => item.id === activeDatasetId)}
+        activeDataset={datasets.find((item) => datasetGroupKey(item) === activeDatasetId)}
         showSidebar={showSidebar}
         showPlaybackBar={showPlaybackBar}
         hideOpenFileMenus={hideOpenFileMenus}

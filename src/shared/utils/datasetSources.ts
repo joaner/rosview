@@ -16,7 +16,50 @@ export type DatasetItem = {
   topicCount?: number;
   /** Files opened together, e.g. from a directory. Some formats need sibling files to initialize correctly. */
   siblingFiles?: File[];
+  /**
+   * Session grouping key. Items sharing the same `groupId` are loaded
+   * together as one merged multi-source session (topics/time-range unioned
+   * via `CombinedSourceProxy`) instead of being independent switchable
+   * datasets. Absent for a standalone item, which is equivalent to a group
+   * of one (see `datasetGroupKey`).
+   */
+  groupId?: string;
 };
+
+/** Grouping key for a dataset item: shared by every member of a merged session. */
+export function datasetGroupKey(item: DatasetItem): string {
+  return item.groupId ?? item.id;
+}
+
+export interface DatasetGroup {
+  groupId: string;
+  members: DatasetItem[];
+}
+
+/** Group a flat dataset list by `datasetGroupKey`, preserving first-seen order. */
+export function groupDatasets(items: DatasetItem[]): DatasetGroup[] {
+  const order: string[] = [];
+  const byGroup = new Map<string, DatasetItem[]>();
+  for (const item of items) {
+    const key = datasetGroupKey(item);
+    const members = byGroup.get(key);
+    if (members) {
+      members.push(item);
+    } else {
+      byGroup.set(key, [item]);
+      order.push(key);
+    }
+  }
+  return order.map((groupId) => ({ groupId, members: byGroup.get(groupId)! }));
+}
+
+let groupIdCounter = 0;
+
+/** Fresh, unique id for a new merged-session group. */
+export function createDatasetGroupId(): string {
+  groupIdCounter += 1;
+  return `group:${Date.now().toString(36)}:${groupIdCounter}`;
+}
 
 /** One row from host `fileManifest` or remote dataset JSON. */
 export type FileListItem = {
@@ -69,6 +112,15 @@ export type RosViewSourceProps = {
   urls?: string[];
   /** Inline manifest rows or JSON URL string (embed via `fileManifest` prop). */
   fileManifest?: string | FileListItem[];
+  /**
+   * When `true`, every item produced from `file`/`files`/`url`/`urls`/
+   * `fileManifest` in this call is assigned one shared `groupId`, so they
+   * load as a single merged multi-source session instead of independent
+   * switchable datasets. Default `false` preserves the existing "list +
+   * switch" behavior for embedders that pass multiple files/urls today.
+   * @default false
+   */
+  mergeSources?: boolean;
 };
 
 function isRecord(v: unknown): v is Record<string, unknown> {
@@ -149,6 +201,13 @@ export function normalizeRosViewSources(props: RosViewSourceProps): DatasetItem[
       if (seenUrls.has(item.url ?? '')) continue;
       seenUrls.add(item.url ?? '');
       out.push(item);
+    }
+  }
+
+  if (props.mergeSources && out.length > 1) {
+    const groupId = createDatasetGroupId();
+    for (const item of out) {
+      item.groupId = groupId;
     }
   }
 
