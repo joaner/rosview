@@ -8,7 +8,7 @@ import type {
 } from '@/core/types/player';
 import { PLAYBACK_SPEED_MAX } from '@/core/types/player';
 import type { DataQualityReport, Time, Initialization, MessageEvent, TimeRange } from '@/core/types/ros';
-import type { WorkerSerializedSource } from '@/infra/workers/WorkerSerializedSource';
+import type { ISourceHandle } from '@/infra/workers/ISourceHandle';
 import type { IMessageCursor } from '@/infra/workers/types';
 import { addMs, toNano } from '@/shared/utils/time';
 import { useMessagePipelineStore } from '@/core/pipeline/store';
@@ -135,7 +135,7 @@ function isSameDataQualityReport(nextValue?: DataQualityReport, prevValue?: Data
 }
 
 export class IterablePlayer implements Player {
-  private _source: WorkerSerializedSource;
+  private _source: ISourceHandle;
   private _state: PlayerState = {
     presence: "preinit",
     progress: {},
@@ -176,7 +176,7 @@ export class IterablePlayer implements Player {
   private _debugEnabled =
     typeof window !== "undefined" && new URLSearchParams(window.location.search).get("debugPlayback") === "1";
 
-  constructor(source: WorkerSerializedSource) {
+  constructor(source: ISourceHandle) {
     this._source = source;
     this._attachPageLifecycleListeners();
   }

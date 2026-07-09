@@ -14,6 +14,13 @@ export interface TopicInfo {
   messageCount?: number;
   frequency?: number;
   durationSec?: number;
+  /**
+   * Display labels for the recording file(s) this topic came from. Only
+   * populated when multiple sources are merged into one session (see
+   * `CombinedSourceProxy`); absent for single-file sessions so existing UI
+   * is unaffected.
+   */
+  sourceLabels?: string[];
 }
 
 /** ROS datatype definitions keyed by schema name (payload shape is source-dependent). */

@@ -16,6 +16,7 @@ import { SharedPayloadRing } from "./sharedPayloadRing";
 import { createWorkerTransport } from "./transports/createWorkerTransport";
 import { SabTransport } from "./transports/SabTransport";
 import type { WorkerTransport } from "./transports/BaseWorkerTransport";
+import type { ISourceHandle, ResolveHighFrequencyLaneOptions } from "./ISourceHandle";
 
 export class WorkerSourceCancelledError extends Error {
   constructor() {
@@ -28,18 +29,13 @@ export function isWorkerSourceCancelledError(error: unknown): error is WorkerSou
   return error instanceof WorkerSourceCancelledError;
 }
 
-type ResolveHighFrequencyLaneOptions = {
-  preferSharedView?: boolean;
-  copyPayload?: boolean;
-};
-
 function errorFromUnknown(error: unknown): Error {
   if (error instanceof Error) return error;
   if (typeof error === "string") return new Error(error);
   return new Error("Worker operation failed");
 }
 
-export class WorkerSerializedSource {
+export class WorkerSerializedSource implements ISourceHandle {
   private _worker: Worker;
   private _remote: Comlink.Remote<IWorkerSerializedSourceWorker>;
   private _transport: WorkerTransport;
