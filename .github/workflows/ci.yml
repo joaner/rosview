@@ -22,6 +22,8 @@ jobs:
 
   e2e:
     runs-on: ubuntu-latest
+    env:
+      MCAP_CLI_VERSION: 'v0.2.0'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -30,6 +32,17 @@ jobs:
           cache: 'npm'
       - run: npm ci
       - run: npx playwright install chromium --with-deps
+      - name: Install mcap CLI
+        # Used by scripts/gen-test-mcap-filtered.mjs to derive a fixture via
+        # the real `mcap filter` command (not @mcap/core). That script
+        # self-skips if this step is ever removed, so it's not load-bearing
+        # for the rest of CI, but keeping it here exercises the multi-source
+        # merge feature's "mcap filter"-derived fixture on every run.
+        run: |
+          curl -sSL -o /usr/local/bin/mcap \
+            "https://github.com/foxglove/mcap/releases/download/releases/mcap-cli/${MCAP_CLI_VERSION}/mcap-linux-amd64"
+          chmod +x /usr/local/bin/mcap
+          mcap --version
       - name: Generate E2E fixtures
         run: npm run gen:e2e:fixtures
       - run: npm run test:e2e

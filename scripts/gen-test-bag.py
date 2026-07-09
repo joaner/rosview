@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
-"""Generate a minimal ROS1 .bag fixture for mcap+bag mixed-format multi-source tests.
+"""Generate or copy a minimal ROS1 .bag fixture into public/examples/.
 
-Uses the `rosbags` package (`pip install rosbags`) since there is no
-maintained JS/TS ROS1 bag *writer* (only readers). Skips gracefully (exit 0,
-no output file) when `rosbags` isn't installed, matching how
-gen-test-mcap-filtered.mjs handles the optional `mcap` CLI dependency:
-contributors without it still get every other fixture, and Playwright specs
-that depend on this file self-skip when it's absent. CI installs the package
-so it always runs there (see .github/workflows/ci.yml).
+Mirrors gen-test-hdf5.py's pattern: the source fixture is committed to
+test-fixtures/media/ so CI and most contributors never need the `rosbags`
+package (`pip install rosbags`) at all; it is only required to *regenerate*
+the source fixture (e.g. after changing the schema below). There is no
+maintained JS/TS ROS1 bag *writer*, which is why this one script is Python
+rather than joining the .mjs generators.
 """
 from __future__ import annotations
 
+import shutil
 import sys
 from pathlib import Path
 
@@ -24,6 +24,7 @@ except ImportError:
     get_typestore = None  # type: ignore[assignment]
 
 ROOT = Path(__file__).resolve().parent.parent
+FIXTURE_SRC = ROOT / 'test-fixtures' / 'media' / 'minimal-multi.bag'
 OUT = ROOT / 'public' / 'examples' / 'test_multi.bag'
 
 
@@ -34,11 +35,11 @@ def generate() -> None:
     header_type = typestore.types['std_msgs/msg/Header']
     time_type = typestore.types['builtin_interfaces/msg/Time']
 
-    OUT.parent.mkdir(parents=True, exist_ok=True)
-    if OUT.exists():
-        OUT.unlink()
+    FIXTURE_SRC.parent.mkdir(parents=True, exist_ok=True)
+    if FIXTURE_SRC.exists():
+        FIXTURE_SRC.unlink()
 
-    with Writer(OUT) as writer:
+    with Writer(FIXTURE_SRC) as writer:
         connection = writer.add_connection(
             '/bag/joint_states',
             joint_state_type.__msgtype__,
@@ -57,21 +58,25 @@ def generate() -> None:
                 sec * 1_000_000_000,
                 typestore.serialize_ros1(message, joint_state_type.__msgtype__),
             )
-    print(f'Wrote {OUT} ({OUT.stat().st_size} bytes)')
+    print(f'Generated {FIXTURE_SRC} ({FIXTURE_SRC.stat().st_size} bytes)')
 
 
 def main() -> int:
-    if Writer is None:
-        print(
-            '[gen-test-bag] `rosbags` package not installed; skipping test_multi.bag.\n'
-            '  Install it with `pip install rosbags` to exercise mcap+bag mixed-format tests.\n'
-            '  Tests that depend on it self-skip when the file is absent.',
-            file=sys.stderr,
-        )
-        if OUT.exists():
-            OUT.unlink()
-        return 0
-    generate()
+    if not FIXTURE_SRC.exists():
+        if Writer is None:
+            print(
+                '[gen-test-bag] rosbags not installed and committed fixture missing; '
+                'skipping test_multi.bag.\n'
+                '  Install it with `pip install rosbags` to (re)generate '
+                f'{FIXTURE_SRC.relative_to(ROOT)}.\n'
+                '  Tests that depend on test_multi.bag self-skip when the file is absent.',
+                file=sys.stderr,
+            )
+            return 0
+        generate()
+    OUT.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(FIXTURE_SRC, OUT)
+    print(f'Wrote {OUT} ({OUT.stat().st_size} bytes)')
     return 0
 
 
