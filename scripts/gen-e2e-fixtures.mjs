@@ -33,4 +33,13 @@ runNode('gen-test-mcap-compressed-depth.mjs');
 runPython('gen-test-hdf5.py');
 runNode('gen-test-bvh.mjs');
 
+// Multi-source merge fixtures. gen-test-mcap-filtered.mjs and gen-test-bag.py
+// each self-skip (exit 0) when their optional external tool (`mcap` CLI /
+// `rosbags` package) isn't installed, so this pipeline still succeeds for
+// contributors without them; CI installs both (see .github/workflows/ci.yml).
+runNode('gen-test-mcap-multi-base.mjs');
+runNode('gen-test-mcap-multi-incremental.mjs');
+runNode('gen-test-mcap-filtered.mjs');
+runPython('gen-test-bag.py');
+
 console.log('[gen-e2e-fixtures] all fixtures ready');

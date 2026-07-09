@@ -39,3 +39,7 @@ yarn.lock
 /test-results/
 /playwright-report/
 .tmp-urdf-debug-*/
+
+# Python (fixture generator scripts, e.g. gen-test-hdf5.py / gen-test-bag.py)
+__pycache__/
+*.pyc
