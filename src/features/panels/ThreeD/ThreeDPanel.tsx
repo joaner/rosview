@@ -6,8 +6,13 @@ import type { MessagePipelineState } from '@/core/pipeline/store';
 import { useMessagePipeline } from '@/core/pipeline/useMessagePipeline';
 import { messageBus } from '@/core/pipeline/messageBus';
 import { scheduleFrame } from '@/shared/utils/rafScheduler';
-import { parsePointCloud2 } from '@/shared/utils/pointCloud';
 import type { PointCloudData } from '@/shared/utils/pointCloud';
+import PointCloudParseWorkerClass from './core/PointCloudParse.worker.ts?worker&inline';
+import type {
+  PointCloudFieldWire,
+  PointCloudParseRequest,
+  PointCloudParseResponse,
+} from './core/pointCloudWorkerProtocol';
 import { transformBvhPointToScene } from '@/shared/bvh/coordinates';
 import { getScenePanelThemeColors, type ScenePanelThemeColors } from '@/features/panels/common/scenePanelTheme';
 import {
@@ -317,35 +322,271 @@ const ZUpGrid: React.FC<ZUpGridProps> = ({
 };
 
 // ── Point cloud ────────────────────────────────────────────────────
-// `useMemo` alone would leak the previous BufferGeometry on every new point
-// cloud message (useMemo does not dispose the old value). We own the lifetime
-// here and explicitly dispose the previous geometry when `data` changes, and
-// when the component unmounts.
+// Geometry/attributes are reused across frames when the point count is
+// unchanged. Rebuilding BufferGeometry every message forced Three.js to
+// recompute boundingSphere (full point scan) and made R3F reconcile a new
+// object identity each tick.
+type PointCloudGpuState = {
+  geometry: THREE.BufferGeometry;
+  position: THREE.BufferAttribute;
+  color: THREE.BufferAttribute | null;
+  pointCount: number;
+};
+
+function disposePointCloudGpu(state: PointCloudGpuState | null): void {
+  if (!state) return;
+  state.geometry.dispose();
+}
+
+function applyPointCloudData(
+  prev: PointCloudGpuState | null,
+  data: PointCloudData,
+  options?: { takeOwnership?: boolean },
+): PointCloudGpuState {
+  const pointCount = data.positions.length / 3;
+  const hasColors = data.colors != undefined && data.colors.length === data.positions.length;
+  const takeOwnership = options?.takeOwnership === true;
+
+  if (prev && prev.pointCount === pointCount) {
+    prev.position.array.set(data.positions);
+    prev.position.needsUpdate = true;
+    if (hasColors) {
+      if (prev.color) {
+        prev.color.array.set(data.colors!);
+        prev.color.needsUpdate = true;
+      } else {
+        const colorArray = takeOwnership ? data.colors! : data.colors!.slice();
+        const colorAttr = new THREE.BufferAttribute(colorArray, 3);
+        colorAttr.setUsage(THREE.DynamicDrawUsage);
+        prev.geometry.setAttribute('color', colorAttr);
+        prev.color = colorAttr;
+      }
+    } else if (prev.color) {
+      prev.geometry.deleteAttribute('color');
+      prev.color = null;
+    }
+    return prev;
+  }
+
+  disposePointCloudGpu(prev);
+  const geometry = new THREE.BufferGeometry();
+  const positionArray = takeOwnership ? data.positions : data.positions.slice();
+  const position = new THREE.BufferAttribute(positionArray, 3);
+  position.setUsage(THREE.DynamicDrawUsage);
+  geometry.setAttribute('position', position);
+  let color: THREE.BufferAttribute | null = null;
+  if (hasColors) {
+    const colorArray = takeOwnership ? data.colors! : data.colors!.slice();
+    color = new THREE.BufferAttribute(colorArray, 3);
+    color.setUsage(THREE.DynamicDrawUsage);
+    geometry.setAttribute('color', color);
+  }
+  // Compute once; we disable frustum culling so a stale sphere cannot hide
+  // a moving cloud after in-place attribute updates.
+  geometry.computeBoundingSphere();
+  return { geometry, position, color, pointCount };
+}
+
+/** Low-frequency clouds (LaserScan / OccupancyGrid) that arrive via React props. */
 const PointCloud = ({ data, color, size }: { data: PointCloudData; color: string; size: number }) => {
-  const geometryRef = useRef<THREE.BufferGeometry | null>(null);
+  const gpuRef = useRef<PointCloudGpuState | null>(null);
   const [geometry, setGeometry] = useState<THREE.BufferGeometry | null>(null);
+  const [hasVertexColors, setHasVertexColors] = useState(false);
+  const { invalidate } = useThree();
 
   useEffect(() => {
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.BufferAttribute(data.positions, 3));
-    const previous = geometryRef.current;
-    geometryRef.current = geo;
-    setGeometry(geo);
-    if (previous) previous.dispose();
+    const next = applyPointCloudData(gpuRef.current, data);
+    gpuRef.current = next;
+    setGeometry(next.geometry);
+    setHasVertexColors(next.color != null);
+    invalidate();
+  }, [data, invalidate]);
+
+  useEffect(() => {
     return () => {
-      // Only dispose in the unmount cleanup; normal updates dispose above so
-      // this runs a single time when the component actually unmounts.
-      if (geometryRef.current === geo) {
-        geometryRef.current = null;
-        geo.dispose();
-      }
+      disposePointCloudGpu(gpuRef.current);
+      gpuRef.current = null;
     };
-  }, [data]);
+  }, []);
 
   if (!geometry) return null;
   return (
-    <points geometry={geometry}>
-      <pointsMaterial size={size} color={color} sizeAttenuation={true} />
+    <points geometry={geometry} frustumCulled={false}>
+      <pointsMaterial
+        size={size}
+        color={hasVertexColors ? '#ffffff' : color}
+        vertexColors={hasVertexColors}
+        sizeAttenuation={true}
+      />
+    </points>
+  );
+};
+
+/**
+ * High-frequency PointCloud2 layer. Parsing runs in a dedicated worker;
+ * transferable ArrayBuffers come back so the main thread only uploads to GPU.
+ * Intermediate frames are coalesced (latest-only) while a parse is in flight.
+ */
+const LivePointCloudLayer = ({
+  player,
+  panelId,
+  topic,
+  color,
+  size,
+}: {
+  player: Player;
+  panelId: string;
+  topic: string;
+  color: string;
+  size: number;
+}) => {
+  const gpuRef = useRef<PointCloudGpuState | null>(null);
+  const [geometry, setGeometry] = useState<THREE.BufferGeometry | null>(null);
+  const [hasVertexColors, setHasVertexColors] = useState(false);
+  const { invalidate } = useThree();
+  const geometryIdentityRef = useRef<THREE.BufferGeometry | null>(null);
+  const hasColorsRef = useRef(false);
+  const workerRef = useRef<Worker | null>(null);
+  const nextIdRef = useRef(1);
+  const inflightIdRef = useRef<number | null>(null);
+  const pendingJobRef = useRef<PointCloudParseRequest | null>(null);
+
+  useEffect(() => {
+    const worker = new PointCloudParseWorkerClass();
+    workerRef.current = worker;
+
+    const applyParsed = (positions: Float32Array, colors: Float32Array | undefined) => {
+      const parsed: PointCloudData = colors ? { positions, colors } : { positions };
+      const next = applyPointCloudData(gpuRef.current, parsed, { takeOwnership: true });
+      gpuRef.current = next;
+      const colorsChanged = (next.color != null) !== hasColorsRef.current;
+      const geometryChanged = next.geometry !== geometryIdentityRef.current;
+      if (geometryChanged || colorsChanged) {
+        geometryIdentityRef.current = next.geometry;
+        hasColorsRef.current = next.color != null;
+        setGeometry(next.geometry);
+        setHasVertexColors(next.color != null);
+      }
+      invalidate();
+    };
+
+    const flushPending = () => {
+      const pending = pendingJobRef.current;
+      if (!pending || inflightIdRef.current != null) {
+        return;
+      }
+      pendingJobRef.current = null;
+      inflightIdRef.current = pending.id;
+      worker.postMessage(pending, [pending.data]);
+    };
+
+    worker.onmessage = (event: MessageEvent<PointCloudParseResponse>) => {
+      const response = event.data;
+      if (response.id !== inflightIdRef.current) {
+        // Stale (should not happen with single-inflight); ignore.
+        flushPending();
+        return;
+      }
+      inflightIdRef.current = null;
+      if (response.type === 'parsed') {
+        const positions = new Float32Array(response.positions);
+        const colors = response.colors ? new Float32Array(response.colors) : undefined;
+        applyParsed(positions, colors);
+      }
+      flushPending();
+    };
+
+    const consumerId = `${panelId}:pointcloud`;
+    let cachedFields: PointCloudFieldWire[] | null = null;
+    player.registerHighFrequencyConsumer(consumerId, {
+      topic,
+      lane: 'pointcloud',
+      mode: 'latest',
+      onLatestMessage: (msg) => {
+        const message = msg.message;
+        if (!message || typeof message !== 'object') {
+          return;
+        }
+        const record = message as Record<string, unknown>;
+        const data = record.data;
+        if (!(data instanceof Uint8Array)) {
+          return;
+        }
+        if (!Array.isArray(record.fields) || typeof record.point_step !== 'number') {
+          return;
+        }
+        if (typeof record.width !== 'number' || typeof record.height !== 'number') {
+          return;
+        }
+
+        if (!cachedFields) {
+          const fields: PointCloudFieldWire[] = [];
+          for (const field of record.fields) {
+            if (!field || typeof field !== 'object') continue;
+            const f = field as Record<string, unknown>;
+            if (typeof f.name !== 'string' || typeof f.offset !== 'number') continue;
+            fields.push({
+              name: f.name,
+              offset: f.offset,
+              datatype: typeof f.datatype === 'number' ? f.datatype : undefined,
+            });
+          }
+          cachedFields = fields;
+        }
+
+        // Always copy before transfer. HF lane may hand us a live SAB view
+        // (`preferSharedView`) or a buffer still referenced by the player tick;
+        // transferring the original would detach it and break playback.
+        const payload = data.buffer.slice(
+          data.byteOffset,
+          data.byteOffset + data.byteLength,
+        ) as ArrayBuffer;
+        const id = nextIdRef.current++;
+        const job: PointCloudParseRequest = {
+          type: 'parse',
+          id,
+          fields: cachedFields,
+          pointStep: record.point_step,
+          width: record.width,
+          height: record.height,
+          isBigendian: record.is_bigendian === true,
+          data: payload,
+        };
+        // Latest-only: replace any queued job (its ArrayBuffer is simply dropped).
+        pendingJobRef.current = job;
+        if (inflightIdRef.current == null) {
+          pendingJobRef.current = null;
+          inflightIdRef.current = id;
+          worker.postMessage(job, [payload]);
+        }
+      },
+    });
+
+    return () => {
+      player.unregisterHighFrequencyConsumer(consumerId);
+      worker.onmessage = null;
+      worker.terminate();
+      workerRef.current = null;
+      pendingJobRef.current = null;
+      inflightIdRef.current = null;
+      disposePointCloudGpu(gpuRef.current);
+      gpuRef.current = null;
+      geometryIdentityRef.current = null;
+      hasColorsRef.current = false;
+      setGeometry(null);
+      setHasVertexColors(false);
+    };
+  }, [player, panelId, topic, invalidate]);
+
+  if (!geometry) return null;
+  return (
+    <points geometry={geometry} frustumCulled={false}>
+      <pointsMaterial
+        size={size}
+        color={hasVertexColors ? '#ffffff' : color}
+        vertexColors={hasVertexColors}
+        sizeAttenuation={true}
+      />
     </points>
   );
 };
@@ -1009,7 +1250,6 @@ const Scene = ({
   topicSettings: ThreeDTopicSetting[];
   onMeshLoadProgressChange?: (progress: MeshLoadProgress | null) => void;
 }) => {
-  const [pointCloud, setPointCloud] = useState<PointCloudData | null>(null);
   const [tracks, setTracks] = useState<Simple3DTrack[]>([]);
   const [markerPrimitives, setMarkerPrimitives] = useState<MarkerPrimitive[]>([]);
   const [skeletonPrimitives, setSkeletonPrimitives] = useState<MarkerPrimitive[]>([]);
@@ -1181,25 +1421,6 @@ const Scene = ({
     }
     return () => player.unregisterSubscriptions(panelId);
   }, [player, panelId, urdfTopic, jointsTopic, bvhTopic, enabledTopicSettings, tfTopics]);
-
-  useEffect(() => {
-    if (!pcTopic) {
-      return;
-    }
-    const consumerId = `${panelId}:pointcloud`;
-    player.registerHighFrequencyConsumer(consumerId, {
-      topic: pcTopic,
-      lane: 'pointcloud',
-      mode: 'latest',
-      onLatestMessage: (msg) => {
-        const parsed = parsePointCloud2(msg.message);
-        if (parsed) {
-          setPointCloud(parsed);
-        }
-      },
-    });
-    return () => player.unregisterHighFrequencyConsumer(consumerId);
-  }, [player, panelId, pcTopic]);
 
   const tfTopicSet = useMemo(() => new Set(tfTopics), [tfTopics]);
   const topicSettingByName = useMemo(
@@ -1395,7 +1616,15 @@ const Scene = ({
         ))}
       {showAxes && <axesHelper args={[1]} />}
 
-      {pointCloud && <PointCloud data={pointCloud} color={colors.pointCloudColor} size={pointSize} />}
+      {pcTopic && (
+        <LivePointCloudLayer
+          player={player}
+          panelId={panelId}
+          topic={pcTopic}
+          color={colors.pointCloudColor}
+          size={pointSize}
+        />
+      )}
       {laserScanCloud && <PointCloud data={laserScanCloud} color="#f97316" size={0.02} />}
       {occupancyCloud && <PointCloud data={occupancyCloud} color="#a855f7" size={0.04} />}
       {tracks.map((track) => (
@@ -1423,7 +1652,7 @@ const Scene = ({
         />
       )}
 
-      {showPlaceholder && !pointCloud && !urdfText && skeletonPrimitives.length === 0 && (
+      {showPlaceholder && !pcTopic && !urdfText && skeletonPrimitives.length === 0 && (
         <mesh position={[0, 0, 0.5]}>
           <boxGeometry args={[1, 1, 1]} />
           <meshStandardMaterial color={colors.placeholderColor} />

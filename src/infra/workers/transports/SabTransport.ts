@@ -4,8 +4,8 @@ import type { IWorkerSerializedSourceWorker } from "../types";
 import type { SharedPayloadRingConfig, TransportDiagnostics } from "../transport";
 import type { WorkerTransport } from "./BaseWorkerTransport";
 
-const DEFAULT_RING_BYTES = 256 * 1024 * 1024;
-const DEFAULT_SLOT_BYTES = 4 * 1024 * 1024;
+const DEFAULT_RING_BYTES = 384 * 1024 * 1024;
+const DEFAULT_SLOT_BYTES = 16 * 1024 * 1024;
 
 export class SabTransport implements WorkerTransport {
   private readonly _ringConfig: SharedPayloadRingConfig;
