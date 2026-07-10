@@ -27,12 +27,13 @@ import type { Range } from '@/shared/utils/ranges';
 import { compactTimeRanges, inferProgressTimeRangeCompaction } from '@/shared/utils/timeRanges';
 import { workerPerf } from './workerPerf';
 import { DataQualityScanController } from './dataQualityScanController';
-type IndexedChunkCoverage = {
-  byteRange: Range;
-  timeRange: TimeRange;
-  startNs: bigint;
-  endNs: bigint;
-};
+import {
+  getPlayableTimeRanges,
+  isByteRangeCovered,
+  type ChunkCoverage,
+} from './playableTimeRanges';
+
+type IndexedChunkCoverage = ChunkCoverage;
 
 const MIB = 1024 * 1024;
 const PREFETCH_CACHE_FRACTION = 0.75;
@@ -42,10 +43,6 @@ const MAX_PREFETCH_HORIZON_NS = 15_000_000_000n;
 const MAX_CONTIGUOUS_CHUNK_GAP_NS = 750_000_000n;
 const DEFAULT_PREFETCH_AHEAD_MS = 5_000;
 const PLAYBACK_CURSOR_BUFFER_AHEAD_MS = 1_500;
-
-function isByteRangeCovered(query: Range, downloaded: readonly Range[]): boolean {
-  return downloaded.some((range) => range.start <= query.start && range.end >= query.end);
-}
 
 class McapWorkerImpl implements IWorkerSerializedSourceWorker {
   private _source?: McapIndexedIterableSource;
@@ -223,7 +220,11 @@ class McapWorkerImpl implements IWorkerSerializedSourceWorker {
       const loadedBytes = downloadedByteRanges.reduce((sum, range) => sum + (range.end - range.start), 0);
       const totalBytes = this._totalBytes || (await this._cachedReadable.size());
       const percent = totalBytes > 0 ? Math.min(100, (loadedBytes / totalBytes) * 100) : 0;
-      const coveredChunkRanges = this._getContiguousPlayableRanges(downloadedByteRanges);
+      const coveredChunkRanges = getPlayableTimeRanges(
+        this._chunkCoverage,
+        downloadedByteRanges,
+        MAX_CONTIGUOUS_CHUNK_GAP_NS,
+      );
       const parsedMessageRanges = compactTimeRanges(
         coveredChunkRanges,
         inferProgressTimeRangeCompaction(
@@ -354,31 +355,6 @@ class McapWorkerImpl implements IWorkerSerializedSourceWorker {
       return undefined;
     }
     return { byteRange: { start: byteStart, end: byteEnd }, endNs: includedEndNs };
-  }
-
-  private _getContiguousPlayableRanges(downloadedByteRanges: readonly Range[]): TimeRange[] {
-    const firstChunk = this._chunkCoverage[0];
-    if (!firstChunk) {
-      return [];
-    }
-
-    const ranges: TimeRange[] = [];
-    let endNs = firstChunk.startNs;
-    for (const chunk of this._chunkCoverage) {
-      if (chunk.startNs > endNs + MAX_CONTIGUOUS_CHUNK_GAP_NS) {
-        break;
-      }
-      if (!isByteRangeCovered(chunk.byteRange, downloadedByteRanges)) {
-        break;
-      }
-
-      endNs = chunk.endNs > endNs ? chunk.endNs : endNs;
-      ranges[0] = {
-        start: { ...firstChunk.timeRange.start },
-        end: fromNano(endNs),
-      };
-    }
-    return ranges;
   }
 
   private _inferPrefetchTargetBytes(): number {
