@@ -1,7 +1,22 @@
 export interface PointCloudData {
+  /** Densely packed valid points (length === count * 3). */
   positions: Float32Array;
   colors?: Float32Array;
+  /** Number of valid points in `positions` / `colors`. */
+  count: number;
+  /**
+   * Preferred GPU buffer capacity (usually width*height). Lets draw-range
+   * reuse survive per-frame valid-count jitter on sparse depth clouds.
+   */
+  maxPoints?: number;
 }
+
+export type ParsePointCloud2Options = {
+  /** Topic name — used with frame_id to decide optical-frame treatment. */
+  topic?: string;
+  /** `header.frame_id` when available. */
+  frameId?: string;
+};
 
 interface PointField {
   name: string;
@@ -12,6 +27,9 @@ interface PointField {
 /** sensor_msgs/PointField datatype constants. */
 const POINT_FIELD_UINT8 = 2;
 const POINT_FIELD_FLOAT32 = 7;
+
+/** Depth <= this (meters) is treated as invalid in optical clouds. */
+const OPTICAL_MIN_DEPTH_M = 1e-4;
 
 function isPointField(value: unknown): value is PointField {
   if (!value || typeof value !== "object") return false;
@@ -33,7 +51,6 @@ function readPackedRgb(
   littleEndian: boolean,
 ): [number, number, number] {
   const packed = view.getUint32(offset, littleEndian);
-  // PCL packs float32 bit-pattern as 0xAARRGGBB (rgba) or 0x00RRGGBB (rgb).
   const r = ((packed >> 16) & 0xff) / 255;
   const g = ((packed >> 8) & 0xff) / 255;
   const b = (packed & 0xff) / 255;
@@ -57,7 +74,29 @@ export function opticalToRos(ox: number, oy: number, oz: number): [number, numbe
   return [oz, -ox, -oy];
 }
 
-// ── Turbo (same polynomial as Image panel; compact for point clouds) ─────────
+/**
+ * Treat as camera optical frame when frame_id says so (REP-103), or when the
+ * topic looks like a depth PointCloud2 (`…/depth/…/points`). Map/base_link
+ * clouds are left unchanged.
+ */
+export function shouldTreatAsOpticalFrame(frameId?: string, topic?: string): boolean {
+  if (frameId && /optical/i.test(frameId)) {
+    return true;
+  }
+  if (topic && /(?:^|\/)depth(?:\/|$)/i.test(topic) && /points/i.test(topic)) {
+    return true;
+  }
+  return false;
+}
+
+export function readPointCloudFrameId(message: Record<string, unknown>): string | undefined {
+  const header = message.header;
+  if (!header || typeof header !== "object") return undefined;
+  const frameId = (header as Record<string, unknown>).frame_id;
+  return typeof frameId === "string" ? frameId : undefined;
+}
+
+// ── Turbo (same polynomial as Image panel) ───────────────────────────────────
 
 const kRedVec4 = [0.13572138, 4.6153926, -42.66032258, 132.13108234] as const;
 const kGreenVec4 = [0.09140261, 2.19418839, 4.84296658, -14.18503333] as const;
@@ -70,7 +109,6 @@ function clamp01(x: number): number {
   return Math.max(0, Math.min(1, x));
 }
 
-/** Sample turbo colormap at pct ∈ [0,1] into rgb out[outOffset..+2]. */
 export function sampleTurbo(pct: number, out: Float32Array, outOffset: number): void {
   const x = clamp01(pct) * 0.99 + 0.01;
   const x2 = x * x;
@@ -106,11 +144,14 @@ export function sampleTurbo(pct: number, out: Float32Array, outOffset: number): 
 /**
  * Parse a `sensor_msgs/PointCloud2` message into GPU-friendly typed arrays.
  *
- * - Drops non-finite xyz (common when `is_dense=false`).
- * - Converts optical → ROS (X forward, Z up) for Z-up scene rendering.
- * - Color priority: rgb/rgba → r/g/b → intensity → depth turbo (optical Z).
+ * - Drops non-finite xyz; in optical mode also drops depth <= 0.
+ * - Optical frames (heuristic) are converted to ROS Z-up.
+ * - Color priority: rgb/rgba → r/g/b → intensity → depth/range turbo.
  */
-export function parsePointCloud2(message: unknown): PointCloudData | null {
+export function parsePointCloud2(
+  message: unknown,
+  options: ParsePointCloud2Options = {},
+): PointCloudData | null {
   if (!message || typeof message !== "object") return null;
   const m = message as Record<string, unknown>;
   const { fields, data, point_step, width, height } = m;
@@ -120,6 +161,9 @@ export function parsePointCloud2(message: unknown): PointCloudData | null {
   const count = width * height;
   if (count <= 0 || point_step <= 0) return null;
   if (data.byteLength < count * point_step) return null;
+
+  const frameId = options.frameId ?? readPointCloudFrameId(m);
+  const asOptical = shouldTreatAsOpticalFrame(frameId, options.topic);
 
   const typedFields = fields.filter(isPointField);
   const xField = fieldByName(typedFields, "x");
@@ -145,10 +189,9 @@ export function parsePointCloud2(message: unknown): PointCloudData | null {
         ? "intensity"
         : "depth";
 
-  // Temporary full-size buffers; compacted at the end.
   const tmpPositions = new Float32Array(count * 3);
   const tmpColors = new Float32Array(count * 3);
-  const tmpDepthOrIntensity = colorMode === "rgb" || colorMode === "rgba_fields" ? null : new Float32Array(count);
+  const tmpScalar = colorMode === "rgb" || colorMode === "rgba_fields" ? null : new Float32Array(count);
 
   const xyzContiguous =
     littleEndian &&
@@ -166,8 +209,8 @@ export function parsePointCloud2(message: unknown): PointCloudData | null {
   const floatsPerPoint = point_step / 4;
 
   let written = 0;
-  let depthMin = Number.POSITIVE_INFINITY;
-  let depthMax = Number.NEGATIVE_INFINITY;
+  let scalarMin = Number.POSITIVE_INFINITY;
+  let scalarMax = Number.NEGATIVE_INFINITY;
 
   for (let i = 0; i < count; i++) {
     let ox: number;
@@ -188,12 +231,26 @@ export function parsePointCloud2(message: unknown): PointCloudData | null {
     if (!Number.isFinite(ox) || !Number.isFinite(oy) || !Number.isFinite(oz)) {
       continue;
     }
+    // Optical depth clouds commonly encode invalid pixels as z<=0.
+    if (asOptical && oz <= OPTICAL_MIN_DEPTH_M) {
+      continue;
+    }
 
-    const [rx, ry, rz] = opticalToRos(ox, oy, oz);
+    let px: number;
+    let py: number;
+    let pz: number;
+    if (asOptical) {
+      [px, py, pz] = opticalToRos(ox, oy, oz);
+    } else {
+      px = ox;
+      py = oy;
+      pz = oz;
+    }
+
     const d = written * 3;
-    tmpPositions[d] = rx;
-    tmpPositions[d + 1] = ry;
-    tmpPositions[d + 2] = rz;
+    tmpPositions[d] = px;
+    tmpPositions[d + 1] = py;
+    tmpPositions[d + 2] = pz;
 
     if (colorMode === "rgb" && rgbField) {
       const [cr, cg, cb] = readPackedRgb(view, i * point_step + rgbField.offset, littleEndian);
@@ -205,7 +262,7 @@ export function parsePointCloud2(message: unknown): PointCloudData | null {
       tmpColors[d] = view.getUint8(base + rField.offset) / 255;
       tmpColors[d + 1] = view.getUint8(base + gField.offset) / 255;
       tmpColors[d + 2] = view.getUint8(base + bField.offset) / 255;
-    } else if (tmpDepthOrIntensity) {
+    } else if (tmpScalar) {
       const value =
         colorMode === "intensity" && intensityField
           ? readNumericField(
@@ -214,11 +271,13 @@ export function parsePointCloud2(message: unknown): PointCloudData | null {
               intensityField.datatype,
               littleEndian,
             )
-          : oz; // optical depth
-      tmpDepthOrIntensity[written] = value;
+          : asOptical
+            ? oz
+            : Math.hypot(ox, oy, oz);
+      tmpScalar[written] = value;
       if (Number.isFinite(value)) {
-        if (value < depthMin) depthMin = value;
-        if (value > depthMax) depthMax = value;
+        if (value < scalarMin) scalarMin = value;
+        if (value > scalarMax) scalarMax = value;
       }
     }
 
@@ -226,7 +285,7 @@ export function parsePointCloud2(message: unknown): PointCloudData | null {
   }
 
   if (written === 0) {
-    return { positions: new Float32Array(0) };
+    return { positions: new Float32Array(0), count: 0, maxPoints: count };
   }
 
   const positions = tmpPositions.slice(0, written * 3);
@@ -234,37 +293,35 @@ export function parsePointCloud2(message: unknown): PointCloudData | null {
 
   if (colorMode === "rgb" || colorMode === "rgba_fields") {
     colors = tmpColors.slice(0, written * 3);
-  } else if (tmpDepthOrIntensity) {
+  } else if (tmpScalar) {
     colors = new Float32Array(written * 3);
-    const range = depthMax - depthMin;
+    const range = scalarMax - scalarMin;
     if (colorMode === "intensity") {
       if (range <= 0 || !Number.isFinite(range)) {
         colors.fill(0.5);
       } else {
         for (let i = 0; i < written; i++) {
-          const t = (tmpDepthOrIntensity[i]! - depthMin) / range;
+          const t = (tmpScalar[i]! - scalarMin) / range;
           const o = i * 3;
           colors[o] = t;
           colors[o + 1] = t;
           colors[o + 2] = t;
         }
       }
+    } else if (range <= 0 || !Number.isFinite(range)) {
+      for (let i = 0; i < written; i++) {
+        sampleTurbo(0.5, colors, i * 3);
+      }
     } else {
-      // Depth turbo
-      if (range <= 0 || !Number.isFinite(range)) {
-        for (let i = 0; i < written; i++) {
-          sampleTurbo(0.5, colors, i * 3);
-        }
-      } else {
-        for (let i = 0; i < written; i++) {
-          const t = (tmpDepthOrIntensity[i]! - depthMin) / range;
-          sampleTurbo(t, colors, i * 3);
-        }
+      for (let i = 0; i < written; i++) {
+        sampleTurbo((tmpScalar[i]! - scalarMin) / range, colors, i * 3);
       }
     }
   }
 
-  return colors ? { positions, colors } : { positions };
+  return colors
+    ? { positions, colors, count: written, maxPoints: count }
+    : { positions, count: written, maxPoints: count };
 }
 
 /** Copy bytes into a plain ArrayBuffer safe to put on a Worker transfer list. */

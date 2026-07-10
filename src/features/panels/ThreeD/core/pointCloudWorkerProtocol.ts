@@ -15,6 +15,10 @@ export type PointCloudParseRequest = {
   width: number;
   height: number;
   isBigendian: boolean;
+  /** Topic name for optical-frame heuristic. */
+  topic?: string;
+  /** `header.frame_id` when present. */
+  frameId?: string;
   /** Raw PointCloud2 `data` bytes (transferred). */
   data: ArrayBuffer;
 };
@@ -23,6 +27,8 @@ export type PointCloudParseSuccess = {
   type: 'parsed';
   id: number;
   pointCount: number;
+  /** width*height — GPU buffer capacity hint. */
+  maxPoints: number;
   positions: ArrayBuffer;
   colors?: ArrayBuffer;
 };

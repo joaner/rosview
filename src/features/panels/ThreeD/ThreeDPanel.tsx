@@ -332,7 +332,9 @@ type PointCloudGpuState = {
   geometry: THREE.BufferGeometry;
   position: THREE.BufferAttribute;
   color: THREE.BufferAttribute | null;
-  pointCount: number;
+  /** Allocated point capacity (may exceed current drawCount). */
+  capacity: number;
+  drawCount: number;
 };
 
 function disposePointCloudGpu(state: PointCloudGpuState | null): void {
@@ -348,25 +350,35 @@ function safeComputeBoundingSphere(geometry: THREE.BufferGeometry): void {
   }
 }
 
+function setAttributeDrawCount(attribute: THREE.BufferAttribute, count: number): void {
+  // Three.js typings mark `count` readonly; runtime still honors updates used with setDrawRange.
+  (attribute as THREE.BufferAttribute & { count: number }).count = count;
+}
+
 function applyPointCloudData(
   prev: PointCloudGpuState | null,
   data: PointCloudData,
-  options?: { takeOwnership?: boolean },
 ): PointCloudGpuState {
-  const pointCount = data.positions.length / 3;
-  const hasColors = data.colors != undefined && data.colors.length === data.positions.length;
-  const takeOwnership = options?.takeOwnership === true;
+  const count = data.count;
+  const hasColors = data.colors != undefined && data.colors.length >= count * 3;
+  const desiredCapacity = Math.max(data.maxPoints ?? count, count, 1);
 
-  if (prev && prev.pointCount === pointCount) {
-    prev.position.array.set(data.positions);
+  // Reuse GPU buffers whenever the new cloud fits — valid-point count often
+  // fluctuates on is_dense=false depth clouds; avoid rebuild every frame.
+  if (prev && count <= prev.capacity) {
+    prev.position.array.set(data.positions.subarray(0, count * 3));
+    setAttributeDrawCount(prev.position, count);
     prev.position.needsUpdate = true;
     if (hasColors) {
       if (prev.color) {
-        prev.color.array.set(data.colors!);
+        prev.color.array.set(data.colors!.subarray(0, count * 3));
+        setAttributeDrawCount(prev.color, count);
         prev.color.needsUpdate = true;
       } else {
-        const colorArray = takeOwnership ? data.colors! : data.colors!.slice();
+        const colorArray = new Float32Array(prev.capacity * 3);
+        colorArray.set(data.colors!.subarray(0, count * 3));
         const colorAttr = new THREE.BufferAttribute(colorArray, 3);
+        setAttributeDrawCount(colorAttr, count);
         colorAttr.setUsage(THREE.DynamicDrawUsage);
         prev.geometry.setAttribute('color', colorAttr);
         prev.color = colorAttr;
@@ -375,26 +387,41 @@ function applyPointCloudData(
       prev.geometry.deleteAttribute('color');
       prev.color = null;
     }
+    prev.geometry.setDrawRange(0, count);
+    prev.drawCount = count;
     return prev;
   }
 
   disposePointCloudGpu(prev);
+  const capacity = desiredCapacity;
   const geometry = new THREE.BufferGeometry();
-  const positionArray = takeOwnership ? data.positions : data.positions.slice();
+
+  const positionArray = new Float32Array(capacity * 3);
+  if (count > 0) {
+    positionArray.set(data.positions.subarray(0, count * 3));
+  }
   const position = new THREE.BufferAttribute(positionArray, 3);
+  setAttributeDrawCount(position, count);
   position.setUsage(THREE.DynamicDrawUsage);
   geometry.setAttribute('position', position);
+
   let color: THREE.BufferAttribute | null = null;
-  if (hasColors) {
-    const colorArray = takeOwnership ? data.colors! : data.colors!.slice();
+  if (hasColors && count > 0) {
+    const colorArray = new Float32Array(capacity * 3);
+    colorArray.set(data.colors!.subarray(0, count * 3));
     color = new THREE.BufferAttribute(colorArray, 3);
+    setAttributeDrawCount(color, count);
     color.setUsage(THREE.DynamicDrawUsage);
     geometry.setAttribute('color', color);
   }
-  // Compute once; frustumCulled is false so a stale sphere cannot hide a
-  // moving cloud. Guard against NaN from sparse/invalid depth clouds.
-  safeComputeBoundingSphere(geometry);
-  return { geometry, position, color, pointCount };
+
+  geometry.setDrawRange(0, count);
+  if (count > 0) {
+    safeComputeBoundingSphere(geometry);
+  } else {
+    geometry.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 0, 0), 1);
+  }
+  return { geometry, position, color, capacity, drawCount: count };
 }
 
 /** Low-frequency clouds (LaserScan / OccupancyGrid) that arrive via React props. */
@@ -454,6 +481,9 @@ const LivePointCloudLayer = ({
   const [geometry, setGeometry] = useState<THREE.BufferGeometry | null>(null);
   const [hasVertexColors, setHasVertexColors] = useState(false);
   const { invalidate, camera, controls } = useThree();
+  const cameraRef = useRef(camera);
+  const controlsRef = useRef(controls);
+  const invalidateRef = useRef(invalidate);
   const geometryIdentityRef = useRef<THREE.BufferGeometry | null>(null);
   const hasColorsRef = useRef(false);
   const workerRef = useRef<Worker | null>(null);
@@ -461,6 +491,10 @@ const LivePointCloudLayer = ({
   const inflightIdRef = useRef<number | null>(null);
   const pendingJobRef = useRef<PointCloudParseRequest | null>(null);
   const didAutofitRef = useRef(false);
+
+  cameraRef.current = camera;
+  controlsRef.current = controls;
+  invalidateRef.current = invalidate;
 
   useEffect(() => {
     didAutofitRef.current = false;
@@ -472,7 +506,8 @@ const LivePointCloudLayer = ({
 
     const autofitOnce = (geo: THREE.BufferGeometry) => {
       if (didAutofitRef.current) return;
-      if (!(camera instanceof THREE.PerspectiveCamera)) return;
+      const cam = cameraRef.current;
+      if (!(cam instanceof THREE.PerspectiveCamera)) return;
       safeComputeBoundingSphere(geo);
       const sphere = geo.boundingSphere;
       if (!sphere || !Number.isFinite(sphere.radius) || sphere.radius <= 0) return;
@@ -480,8 +515,8 @@ const LivePointCloudLayer = ({
         geo.getAttribute('position') as THREE.BufferAttribute,
       );
       if (box.isEmpty()) return;
-      const target = framePerspectiveCameraToBox(camera, box);
-      const oc = controls as ThreeOrbitControls | null;
+      const target = framePerspectiveCameraToBox(cam, box);
+      const oc = controlsRef.current as ThreeOrbitControls | null;
       if (oc) {
         oc.target.copy(target);
         oc.update();
@@ -489,10 +524,20 @@ const LivePointCloudLayer = ({
       didAutofitRef.current = true;
     };
 
-    const applyParsed = (positions: Float32Array, colors: Float32Array | undefined) => {
-      if (positions.length === 0) return;
-      const parsed: PointCloudData = colors ? { positions, colors } : { positions };
-      const next = applyPointCloudData(gpuRef.current, parsed, { takeOwnership: true });
+    const applyParsed = (
+      positions: Float32Array,
+      colors: Float32Array | undefined,
+      pointCount: number,
+      maxPoints: number,
+    ) => {
+      if (pointCount <= 0) return;
+      const parsed: PointCloudData = {
+        positions,
+        colors,
+        count: pointCount,
+        maxPoints,
+      };
+      const next = applyPointCloudData(gpuRef.current, parsed);
       gpuRef.current = next;
       const colorsChanged = (next.color != null) !== hasColorsRef.current;
       const geometryChanged = next.geometry !== geometryIdentityRef.current;
@@ -503,7 +548,7 @@ const LivePointCloudLayer = ({
         setHasVertexColors(next.color != null);
       }
       autofitOnce(next.geometry);
-      invalidate();
+      invalidateRef.current();
     };
 
     const flushPending = () => {
@@ -526,7 +571,7 @@ const LivePointCloudLayer = ({
       if (response.type === 'parsed') {
         const positions = new Float32Array(response.positions);
         const colors = response.colors ? new Float32Array(response.colors) : undefined;
-        applyParsed(positions, colors);
+        applyParsed(positions, colors, response.pointCount, response.maxPoints);
       }
       flushPending();
     };
@@ -569,7 +614,12 @@ const LivePointCloudLayer = ({
           cachedFields = fields;
         }
 
-        // SAB views cannot be transferred — always copy into a plain ArrayBuffer.
+        const header = record.header;
+        const frameId =
+          header && typeof header === 'object' && typeof (header as Record<string, unknown>).frame_id === 'string'
+            ? ((header as Record<string, unknown>).frame_id as string)
+            : undefined;
+
         const payload = copyToTransferableArrayBuffer(data);
         const id = nextIdRef.current++;
         const job: PointCloudParseRequest = {
@@ -580,6 +630,8 @@ const LivePointCloudLayer = ({
           width: record.width,
           height: record.height,
           isBigendian: record.is_bigendian === true,
+          topic,
+          frameId,
           data: payload,
         };
         pendingJobRef.current = job;
@@ -605,7 +657,7 @@ const LivePointCloudLayer = ({
       setGeometry(null);
       setHasVertexColors(false);
     };
-  }, [player, panelId, topic, invalidate, camera, controls]);
+  }, [player, panelId, topic]);
 
   if (!geometry) return null;
   return (
@@ -976,7 +1028,8 @@ function extractLaserScanPoints(message: unknown): PointCloudData | null {
     positions.push(Math.cos(angle) * range, Math.sin(angle) * range, 0);
   }
   if (positions.length === 0) return null;
-  return { positions: new Float32Array(positions) };
+  const positionsArray = new Float32Array(positions);
+  return { positions: positionsArray, count: positionsArray.length / 3 };
 }
 
 function extractOccupancyGridPoints(message: unknown): PointCloudData | null {
@@ -1001,7 +1054,8 @@ function extractOccupancyGridPoints(message: unknown): PointCloudData | null {
     }
   }
   if (positions.length === 0) return null;
-  return { positions: new Float32Array(positions) };
+  const positionsArray = new Float32Array(positions);
+  return { positions: positionsArray, count: positionsArray.length / 3 };
 }
 
 // ── URDF mesh resolution (unchanged) ──────────────────────────────

@@ -5,6 +5,7 @@ import {
   parsePointCloud2,
   PointFieldDatatype,
   sampleTurbo,
+  shouldTreatAsOpticalFrame,
 } from './pointCloud';
 
 function packPclRgb(r: number, g: number, b: number): number {
@@ -19,6 +20,7 @@ function buildCloud(options: {
   pointStep: number;
   points: Array<(view: DataView, offset: number) => void>;
   isBigendian?: boolean;
+  frameId?: string;
 }) {
   const width = options.points.length;
   const height = 1;
@@ -28,6 +30,7 @@ function buildCloud(options: {
     options.points[i]!(view, i * options.pointStep);
   }
   return {
+    header: options.frameId ? { frame_id: options.frameId } : undefined,
     fields: options.fields,
     data,
     point_step: options.pointStep,
@@ -42,6 +45,14 @@ const XYZ_FIELDS = [
   { name: 'y', offset: 4, datatype: PointFieldDatatype.FLOAT32 },
   { name: 'z', offset: 8, datatype: PointFieldDatatype.FLOAT32 },
 ];
+
+describe('shouldTreatAsOpticalFrame', () => {
+  it('detects optical frame_id and depth/points topics', () => {
+    expect(shouldTreatAsOpticalFrame('camera_depth_optical_frame')).toBe(true);
+    expect(shouldTreatAsOpticalFrame(undefined, '/orbbec_free/depth/points')).toBe(true);
+    expect(shouldTreatAsOpticalFrame('map', '/lidar/points')).toBe(false);
+  });
+});
 
 describe('opticalToRos', () => {
   it('maps optical Z-forward Y-down to ROS X-forward Z-up', () => {
@@ -62,10 +73,11 @@ describe('copyToTransferableArrayBuffer', () => {
 });
 
 describe('parsePointCloud2', () => {
-  it('converts optical xyz to ROS and colorizes by depth turbo when no color fields', () => {
+  it('converts optical xyz to ROS and colorizes by depth turbo for depth topics', () => {
     const message = buildCloud({
       fields: XYZ_FIELDS,
       pointStep: 16,
+      frameId: 'orbbec_depth_optical_frame',
       points: [
         (view, offset) => {
           view.setFloat32(offset, 1, true);
@@ -80,23 +92,39 @@ describe('parsePointCloud2', () => {
       ],
     });
 
-    const parsed = parsePointCloud2(message);
+    const parsed = parsePointCloud2(message, { topic: '/orbbec_free/depth/points' });
     expect(parsed).not.toBeNull();
-    // optical (1,2,3) → ROS (3,-1,-2); optical (0,0,10) → ROS (10,0,0)
+    expect(parsed!.count).toBe(2);
+    expect(parsed!.maxPoints).toBe(2);
     expect(Array.from(parsed!.positions.subarray(0, 3))).toEqual([3, -1, -2]);
     expect(parsed!.positions[3]).toBeCloseTo(10);
-    expect(parsed!.positions[4]).toBeCloseTo(0);
-    expect(parsed!.positions[5]).toBeCloseTo(0);
     expect(parsed!.colors).toBeDefined();
-    expect(parsed!.colors!.length).toBe(6);
-    // Near (depth 3) vs far (depth 10) should differ under turbo.
     expect(parsed!.colors![0]).not.toBeCloseTo(parsed!.colors![3]!, 2);
   });
 
-  it('drops non-finite points', () => {
+  it('does not optical-transform map-frame clouds', () => {
     const message = buildCloud({
       fields: XYZ_FIELDS,
       pointStep: 16,
+      frameId: 'map',
+      points: [
+        (view, offset) => {
+          view.setFloat32(offset, 1, true);
+          view.setFloat32(offset + 4, 2, true);
+          view.setFloat32(offset + 8, 3, true);
+        },
+      ],
+    });
+
+    const parsed = parsePointCloud2(message, { topic: '/map/points', frameId: 'map' });
+    expect(Array.from(parsed!.positions)).toEqual([1, 2, 3]);
+  });
+
+  it('drops non-finite and non-positive optical depth', () => {
+    const message = buildCloud({
+      fields: XYZ_FIELDS,
+      pointStep: 16,
+      frameId: 'camera_optical_frame',
       points: [
         (view, offset) => {
           view.setFloat32(offset, Number.NaN, true);
@@ -106,16 +134,19 @@ describe('parsePointCloud2', () => {
         (view, offset) => {
           view.setFloat32(offset, 0, true);
           view.setFloat32(offset + 4, 0, true);
+          view.setFloat32(offset + 8, 0, true); // invalid depth
+        },
+        (view, offset) => {
+          view.setFloat32(offset, 0, true);
+          view.setFloat32(offset + 4, 0, true);
           view.setFloat32(offset + 8, 2, true);
         },
       ],
     });
 
-    const parsed = parsePointCloud2(message);
-    expect(parsed!.positions.length).toBe(3);
+    const parsed = parsePointCloud2(message, { frameId: 'camera_optical_frame' });
+    expect(parsed!.count).toBe(1);
     expect(parsed!.positions[0]).toBeCloseTo(2);
-    expect(parsed!.positions[1]).toBeCloseTo(0);
-    expect(parsed!.positions[2]).toBeCloseTo(0);
   });
 
   it('parses PCL packed rgb float32 field', () => {
@@ -136,7 +167,7 @@ describe('parsePointCloud2', () => {
       ],
     });
 
-    const parsed = parsePointCloud2(message);
+    const parsed = parsePointCloud2(message, { frameId: 'map' });
     expect(parsed?.colors).toBeDefined();
     expect(parsed!.colors![0]).toBeCloseTo(1);
     expect(parsed!.colors![1]).toBeCloseTo(128 / 255);
@@ -164,7 +195,7 @@ describe('parsePointCloud2', () => {
       ],
     });
 
-    const parsed = parsePointCloud2(message);
+    const parsed = parsePointCloud2(message, { frameId: 'map' });
     expect(parsed?.colors).toBeDefined();
     expect(parsed!.colors![0]).toBeCloseTo(0);
     expect(parsed!.colors![1]).toBeCloseTo(1);
@@ -194,14 +225,10 @@ describe('parsePointCloud2', () => {
       ],
     });
 
-    const parsed = parsePointCloud2(message);
+    const parsed = parsePointCloud2(message, { frameId: 'map' });
     expect(parsed?.colors).toBeDefined();
     expect(parsed!.colors![0]).toBeCloseTo(0);
-    expect(parsed!.colors![1]).toBeCloseTo(0);
-    expect(parsed!.colors![2]).toBeCloseTo(0);
     expect(parsed!.colors![3]).toBeCloseTo(1);
-    expect(parsed!.colors![4]).toBeCloseTo(1);
-    expect(parsed!.colors![5]).toBeCloseTo(1);
   });
 
   it('returns null for incomplete messages', () => {

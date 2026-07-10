@@ -21,14 +21,17 @@ self.onmessage = (event: MessageEvent<PointCloudParseRequest>) => {
   }
 
   try {
-    const parsed = parsePointCloud2({
-      fields: req.fields,
-      data: new Uint8Array(req.data),
-      point_step: req.pointStep,
-      width: req.width,
-      height: req.height,
-      is_bigendian: req.isBigendian,
-    });
+    const parsed = parsePointCloud2(
+      {
+        fields: req.fields,
+        data: new Uint8Array(req.data),
+        point_step: req.pointStep,
+        width: req.width,
+        height: req.height,
+        is_bigendian: req.isBigendian,
+      },
+      { topic: req.topic, frameId: req.frameId },
+    );
 
     if (!parsed) {
       const failure: PointCloudParseResponse = {
@@ -45,7 +48,8 @@ self.onmessage = (event: MessageEvent<PointCloudParseRequest>) => {
     const success: PointCloudParseSuccess = {
       type: 'parsed',
       id: req.id,
-      pointCount: parsed.positions.length / 3,
+      pointCount: parsed.count,
+      maxPoints: parsed.maxPoints ?? req.width * req.height,
       positions: positionsBuffer,
     };
     if (parsed.colors) {
