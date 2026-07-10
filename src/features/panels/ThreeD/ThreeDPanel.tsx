@@ -7,6 +7,7 @@ import { useMessagePipeline } from '@/core/pipeline/useMessagePipeline';
 import { messageBus } from '@/core/pipeline/messageBus';
 import { scheduleFrame } from '@/shared/utils/rafScheduler';
 import type { PointCloudData } from '@/shared/utils/pointCloud';
+import { copyToTransferableArrayBuffer } from '@/shared/utils/pointCloud';
 import PointCloudParseWorkerClass from './core/PointCloudParse.worker.ts?worker&inline';
 import type {
   PointCloudFieldWire,
@@ -25,6 +26,7 @@ import {
   CANVAS_GL,
   DEFAULT_GRID_DIVISIONS,
   DEFAULT_GRID_SIZE,
+  framePerspectiveCameraToBox,
   framePerspectiveCameraToGrid,
   Z_UP,
 } from '@/features/panels/common/zUpSceneLayout';
@@ -338,6 +340,14 @@ function disposePointCloudGpu(state: PointCloudGpuState | null): void {
   state.geometry.dispose();
 }
 
+function safeComputeBoundingSphere(geometry: THREE.BufferGeometry): void {
+  geometry.computeBoundingSphere();
+  const sphere = geometry.boundingSphere;
+  if (!sphere || !Number.isFinite(sphere.radius) || sphere.radius < 0) {
+    geometry.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 0, 0), 1);
+  }
+}
+
 function applyPointCloudData(
   prev: PointCloudGpuState | null,
   data: PointCloudData,
@@ -381,9 +391,9 @@ function applyPointCloudData(
     color.setUsage(THREE.DynamicDrawUsage);
     geometry.setAttribute('color', color);
   }
-  // Compute once; we disable frustum culling so a stale sphere cannot hide
-  // a moving cloud after in-place attribute updates.
-  geometry.computeBoundingSphere();
+  // Compute once; frustumCulled is false so a stale sphere cannot hide a
+  // moving cloud. Guard against NaN from sparse/invalid depth clouds.
+  safeComputeBoundingSphere(geometry);
   return { geometry, position, color, pointCount };
 }
 
@@ -443,19 +453,44 @@ const LivePointCloudLayer = ({
   const gpuRef = useRef<PointCloudGpuState | null>(null);
   const [geometry, setGeometry] = useState<THREE.BufferGeometry | null>(null);
   const [hasVertexColors, setHasVertexColors] = useState(false);
-  const { invalidate } = useThree();
+  const { invalidate, camera, controls } = useThree();
   const geometryIdentityRef = useRef<THREE.BufferGeometry | null>(null);
   const hasColorsRef = useRef(false);
   const workerRef = useRef<Worker | null>(null);
   const nextIdRef = useRef(1);
   const inflightIdRef = useRef<number | null>(null);
   const pendingJobRef = useRef<PointCloudParseRequest | null>(null);
+  const didAutofitRef = useRef(false);
+
+  useEffect(() => {
+    didAutofitRef.current = false;
+  }, [topic]);
 
   useEffect(() => {
     const worker = new PointCloudParseWorkerClass();
     workerRef.current = worker;
 
+    const autofitOnce = (geo: THREE.BufferGeometry) => {
+      if (didAutofitRef.current) return;
+      if (!(camera instanceof THREE.PerspectiveCamera)) return;
+      safeComputeBoundingSphere(geo);
+      const sphere = geo.boundingSphere;
+      if (!sphere || !Number.isFinite(sphere.radius) || sphere.radius <= 0) return;
+      const box = new THREE.Box3().setFromBufferAttribute(
+        geo.getAttribute('position') as THREE.BufferAttribute,
+      );
+      if (box.isEmpty()) return;
+      const target = framePerspectiveCameraToBox(camera, box);
+      const oc = controls as ThreeOrbitControls | null;
+      if (oc) {
+        oc.target.copy(target);
+        oc.update();
+      }
+      didAutofitRef.current = true;
+    };
+
     const applyParsed = (positions: Float32Array, colors: Float32Array | undefined) => {
+      if (positions.length === 0) return;
       const parsed: PointCloudData = colors ? { positions, colors } : { positions };
       const next = applyPointCloudData(gpuRef.current, parsed, { takeOwnership: true });
       gpuRef.current = next;
@@ -467,6 +502,7 @@ const LivePointCloudLayer = ({
         setGeometry(next.geometry);
         setHasVertexColors(next.color != null);
       }
+      autofitOnce(next.geometry);
       invalidate();
     };
 
@@ -483,7 +519,6 @@ const LivePointCloudLayer = ({
     worker.onmessage = (event: MessageEvent<PointCloudParseResponse>) => {
       const response = event.data;
       if (response.id !== inflightIdRef.current) {
-        // Stale (should not happen with single-inflight); ignore.
         flushPending();
         return;
       }
@@ -534,13 +569,8 @@ const LivePointCloudLayer = ({
           cachedFields = fields;
         }
 
-        // Always copy before transfer. HF lane may hand us a live SAB view
-        // (`preferSharedView`) or a buffer still referenced by the player tick;
-        // transferring the original would detach it and break playback.
-        const payload = data.buffer.slice(
-          data.byteOffset,
-          data.byteOffset + data.byteLength,
-        ) as ArrayBuffer;
+        // SAB views cannot be transferred — always copy into a plain ArrayBuffer.
+        const payload = copyToTransferableArrayBuffer(data);
         const id = nextIdRef.current++;
         const job: PointCloudParseRequest = {
           type: 'parse',
@@ -552,7 +582,6 @@ const LivePointCloudLayer = ({
           isBigendian: record.is_bigendian === true,
           data: payload,
         };
-        // Latest-only: replace any queued job (its ArrayBuffer is simply dropped).
         pendingJobRef.current = job;
         if (inflightIdRef.current == null) {
           pendingJobRef.current = null;
@@ -576,7 +605,7 @@ const LivePointCloudLayer = ({
       setGeometry(null);
       setHasVertexColors(false);
     };
-  }, [player, panelId, topic, invalidate]);
+  }, [player, panelId, topic, invalidate, camera, controls]);
 
   if (!geometry) return null;
   return (

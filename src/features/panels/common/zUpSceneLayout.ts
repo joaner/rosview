@@ -61,3 +61,59 @@ export function framePerspectiveCameraToGrid(
   camera.far = Math.max(6000, distance * 80);
   camera.updateProjectionMatrix();
 }
+
+/**
+ * Frame a Z-up perspective camera to a point-cloud AABB so the view looks
+ * along ROS +X (forward), matching a depth/color camera "looking ahead".
+ * Returns the box center for OrbitControls.target.
+ */
+export function framePerspectiveCameraToBox(
+  camera: THREE.PerspectiveCamera,
+  box: THREE.Box3,
+  fillRatio: number = CAMERA_GRID_FILL_RATIO,
+): THREE.Vector3 {
+  const center = box.getCenter(new THREE.Vector3());
+  const size = box.getSize(new THREE.Vector3());
+  // Camera sits behind-and-slightly-above the cloud, looking toward +X.
+  const fromCenterToCamera = new THREE.Vector3(-1, 0, 0.28).normalize();
+  const forward = fromCenterToCamera.clone().negate();
+  const right = new THREE.Vector3().crossVectors(forward, Z_UP).normalize();
+  const up = new THREE.Vector3().crossVectors(right, forward).normalize();
+
+  const vFov = THREE.MathUtils.degToRad(camera.fov);
+  const hFov = 2 * Math.atan(Math.tan(vFov / 2) * camera.aspect);
+  const tanHalfV = Math.tan(vFov / 2);
+  const tanHalfH = Math.tan(hFov / 2);
+
+  const half = size.clone().multiplyScalar(0.5);
+  const corners = [
+    new THREE.Vector3(-half.x, -half.y, -half.z),
+    new THREE.Vector3(-half.x, -half.y, half.z),
+    new THREE.Vector3(-half.x, half.y, -half.z),
+    new THREE.Vector3(-half.x, half.y, half.z),
+    new THREE.Vector3(half.x, -half.y, -half.z),
+    new THREE.Vector3(half.x, -half.y, half.z),
+    new THREE.Vector3(half.x, half.y, -half.z),
+    new THREE.Vector3(half.x, half.y, half.z),
+  ];
+
+  let distance = 0.5;
+  for (const corner of corners) {
+    const towardCamera = corner.dot(fromCenterToCamera);
+    distance = Math.max(
+      distance,
+      towardCamera + Math.abs(corner.dot(right)) / (tanHalfH * fillRatio),
+      towardCamera + Math.abs(corner.dot(up)) / (tanHalfV * fillRatio),
+    );
+  }
+  // Keep a little padding so near-plane points are not clipped.
+  distance = Math.max(distance, size.length() * 0.35 + 0.5);
+
+  camera.up.copy(Z_UP);
+  camera.position.copy(center).addScaledVector(fromCenterToCamera, distance);
+  camera.lookAt(center);
+  camera.near = Math.max(0.01, distance / 1500);
+  camera.far = Math.max(6000, distance * 80);
+  camera.updateProjectionMatrix();
+  return center;
+}
