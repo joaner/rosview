@@ -301,7 +301,7 @@ export function parsePointCloud2(
         colors.fill(0.5);
       } else {
         for (let i = 0; i < written; i++) {
-          const t = (tmpScalar[i]! - scalarMin) / range;
+          const t = (tmpScalar[i] - scalarMin) / range;
           const o = i * 3;
           colors[o] = t;
           colors[o + 1] = t;
@@ -314,7 +314,7 @@ export function parsePointCloud2(
       }
     } else {
       for (let i = 0; i < written; i++) {
-        sampleTurbo((tmpScalar[i]! - scalarMin) / range, colors, i * 3);
+        sampleTurbo((tmpScalar[i] - scalarMin) / range, colors, i * 3);
       }
     }
   }

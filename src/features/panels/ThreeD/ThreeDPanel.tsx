@@ -492,9 +492,11 @@ const LivePointCloudLayer = ({
   const pendingJobRef = useRef<PointCloudParseRequest | null>(null);
   const didAutofitRef = useRef(false);
 
-  cameraRef.current = camera;
-  controlsRef.current = controls;
-  invalidateRef.current = invalidate;
+  useEffect(() => {
+    cameraRef.current = camera;
+    controlsRef.current = controls;
+    invalidateRef.current = invalidate;
+  }, [camera, controls, invalidate]);
 
   useEffect(() => {
     didAutofitRef.current = false;

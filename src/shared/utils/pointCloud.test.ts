@@ -12,7 +12,7 @@ function packPclRgb(r: number, g: number, b: number): number {
   const packed = ((r & 0xff) << 16) | ((g & 0xff) << 8) | (b & 0xff);
   const buf = new ArrayBuffer(4);
   new Uint32Array(buf)[0] = packed;
-  return new Float32Array(buf)[0]!;
+  return new Float32Array(buf)[0];
 }
 
 function buildCloud(options: {
@@ -27,7 +27,7 @@ function buildCloud(options: {
   const data = new Uint8Array(width * options.pointStep);
   const view = new DataView(data.buffer);
   for (let i = 0; i < options.points.length; i++) {
-    options.points[i]!(view, i * options.pointStep);
+    options.points[i](view, i * options.pointStep);
   }
   return {
     header: options.frameId ? { frame_id: options.frameId } : undefined,
@@ -99,7 +99,7 @@ describe('parsePointCloud2', () => {
     expect(Array.from(parsed!.positions.subarray(0, 3))).toEqual([3, -1, -2]);
     expect(parsed!.positions[3]).toBeCloseTo(10);
     expect(parsed!.colors).toBeDefined();
-    expect(parsed!.colors![0]).not.toBeCloseTo(parsed!.colors![3]!, 2);
+    expect(parsed!.colors![0]).not.toBeCloseTo(parsed!.colors![3], 2);
   });
 
   it('does not optical-transform map-frame clouds', () => {
@@ -243,6 +243,6 @@ describe('sampleTurbo', () => {
     const b = new Float32Array(3);
     sampleTurbo(0, a, 0);
     sampleTurbo(1, b, 0);
-    expect(a[0]).not.toBeCloseTo(b[0]!, 2);
+    expect(a[0]).not.toBeCloseTo(b[0], 2);
   });
 });
