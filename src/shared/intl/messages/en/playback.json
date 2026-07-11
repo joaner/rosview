@@ -15,5 +15,7 @@
   "playback.samplingFps.aria": "Sampling FPS",
   "playback.loop.aria": "Playback loop mode",
   "playback.loop.loop": "Loop",
-  "playback.loop.once": "Once"
+  "playback.loop.once": "Once",
+  "playback.live.badge": "LIVE",
+  "playback.live.hint": "Live stream — seeking is disabled"
 }

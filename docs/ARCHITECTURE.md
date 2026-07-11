@@ -816,30 +816,38 @@ rosview/
 
 ## 9. Extension Points
 
-### 9.1 Real-Time Connection (Future)
+### 9.1 Real-Time Connection (Foxglove WebSocket)
 
-The current architecture supports offline file playback only, but `IterablePlayer` and `MessagePipeline` are designed to accept live data sources:
+Live ROS data uses the **Foxglove WebSocket protocol v1** with the stock ROS package
+**`foxglove_bridge`** (not a custom protocol). Architecture:
 
-```typescript
-// Player interface abstraction — future RosbridgePlayer can implement this
-interface Player {
-  setListener(listener: (state: PlayerState) => Promise<void>): void;
-  setSubscriptions(subscriptions: Subscription[]): void;
-  requestBackfill(): void;
-  // Live-connection extras
-  setPublishers?(publishers: Publisher[]): void;
-  publish?(request: PublishPayload): void;
-}
-
-// DataSourceFactory pattern
-interface DataSourceFactory {
-  id: string;
-  type: 'file' | 'connection';
-  create(args: DataSourceArgs): Player;
-}
+```
+ROS 2 graph  →  foxglove_bridge (:8765)
+                    │  foxglove.websocket.v1
+                    ▼
+         FoxgloveWsClient + FoxgloveBridgeAdapter  (src/core/live/)
+                    ▼
+              LivePlayer implements Player
+                    ▼
+         messageBus + MessagePipeline → existing panels
 ```
 
-`PlayerState.capabilities` array signals what the current player supports (e.g. `seek`, `playbackControl`, `publish`). `setPublishers` / `publish` on `MessagePipeline` are only available when `capabilities` includes `advertise`.
+Key modules:
+
+| Module | Path |
+|--------|------|
+| Protocol helpers | `src/core/live/foxglove/protocol.ts` |
+| WebSocket client | `src/core/live/foxglove/FoxgloveWsClient.ts` |
+| `LiveBridgeAdapter` | `src/core/live/foxglove/FoxgloveBridgeAdapter.ts` |
+| `LivePlayer` | `src/core/players/LivePlayer.ts` |
+| URL helpers | `src/core/live/liveUrl.ts` |
+
+`LivePlayer` reuses the same `messageBus` / subscription model as `IterablePlayer` so Image,
+Plot, 3D, RawMessages, etc. work without panel changes. Seek/loop are disabled for live streams.
+Publish / parameters / services are reserved on `LiveBridgeAdapter` for later.
+
+Open via `ws://` / `wss://` / `foxglove://` (Welcome URL tab or `?url=ws://localhost:8765`).
+See `docs/DEVELOPMENT.md` for install and smoke-test steps.
 
 ### 9.2 Plugin / Extension System (Future)
 

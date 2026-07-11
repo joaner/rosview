@@ -1,11 +1,15 @@
 /**
- * SPA `?url=` datasource locator: remote HTTP(S) / same-origin path, or
- * app-specific `file://` / `folder://` / `sample://` (not the browser's native file: protocol).
+ * SPA `?url=` datasource locator: remote HTTP(S) / same-origin path, live
+ * WebSocket (`ws://` / `wss://` / `foxglove://`), or app-specific `file://` /
+ * `folder://` / `sample://` (not the browser's native file: protocol).
  */
 
+import { isLiveWebsocketUrl, normalizeLiveWebsocketUrl } from '@/core/live/liveUrl';
 import { resolveBrowserHttpUrl } from '@/shared/utils/resolveBrowserHttpUrl';
 
 export type SourceLocatorRemote = { kind: 'remote'; raw: string; resolvedUrl: string };
+
+export type SourceLocatorWebsocket = { kind: 'websocket'; raw: string; wsUrl: string };
 
 export type SourceLocatorLocalFile = { kind: 'local_file'; displayName: string };
 
@@ -15,6 +19,7 @@ export type SourceLocatorSample = { kind: 'sample'; sampleId: string };
 
 export type SourceLocator =
   | SourceLocatorRemote
+  | SourceLocatorWebsocket
   | SourceLocatorLocalFile
   | SourceLocatorLocalFolder
   | SourceLocatorSample;
@@ -31,11 +36,20 @@ function stripLeadingSlashes(s: string): string {
  * Parse `?url=` value into a structured locator.
  * - `file://name` / `folder://name` — local display names (IndexedDB handle replay).
  * - `sample://id` — built-in sample id (resolved via sample manifest at runtime).
+ * - `ws://` / `wss://` / `foxglove://` — live Foxglove WebSocket bridge.
  * - Otherwise treated as remote: resolved with {@link resolveBrowserHttpUrl}.
  */
 export function parseSourceLocator(raw: string): SourceLocator | null {
   const trimmed = raw.trim();
   if (!trimmed) return null;
+
+  if (isLiveWebsocketUrl(trimmed)) {
+    return {
+      kind: 'websocket',
+      raw: trimmed,
+      wsUrl: normalizeLiveWebsocketUrl(trimmed),
+    };
+  }
 
   if (SAMPLE_PREFIX.test(trimmed)) {
     const rest = stripLeadingSlashes(trimmed.replace(SAMPLE_PREFIX, ''));
@@ -96,6 +110,9 @@ export function serializeSourceLocator(locator: SourceLocator): string {
   }
   if (locator.kind === 'sample') {
     return `sample://${encodeLocalLocatorSegment(locator.sampleId)}`;
+  }
+  if (locator.kind === 'websocket') {
+    return locator.wsUrl;
   }
   return formatRemoteLocatorForAddressBar(locator.resolvedUrl);
 }

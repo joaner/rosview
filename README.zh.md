@@ -6,7 +6,7 @@
 
 > 高性能、浏览器原生的机器人数据可视化。从零构建的 Foxglove Studio 现代替代方案 —— 基于 React 19、Vite 8 与 Web Workers。
 
-支持 **MCAP**、**ROS 1 bag**、**ROS 2 db3**、**HDF5** 与 **BVH** 文件。可作为独立 SPA（零安装，访问 [rosview.com](https://rosview.com)）或作为可嵌入的 npm 包使用。
+支持 **MCAP**、**ROS 1 bag**、**ROS 2 db3**、**HDF5**、**BVH** 录制文件，以及通过官方 **Foxglove WebSocket 桥**（`foxglove_bridge`）的 **实时 ROS 2**。可作为独立 SPA（零安装，访问 [rosview.com](https://rosview.com)）或作为可嵌入的 npm 包使用。
 
 <p align="center">
   <a href="https://rosview.com">
@@ -36,6 +36,7 @@
 ## 功能特性
 
 - **多格式** — MCAP · ROS 1 `.bag` · ROS 2 `.db3` · HDF5 `.h5/.hdf5` · BVH 骨骼动画
+- **实时 ROS 2** — 通过 Foxglove WebSocket 连接 `foxglove_bridge`（`ws://` / `wss://`），不自创协议
 - **Worker 解析** — 专用 Web Worker + Comlink；主线程尽量不被阻塞
 - **HTTP Range 流式加载** — 无需整文件下载即可开始回放
 - **多面板布局** — 基于 DockView 的可拖拽、可停靠面板

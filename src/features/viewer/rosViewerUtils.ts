@@ -70,6 +70,9 @@ export function fileBatchDisplayName(files: File[]): string {
 }
 
 export function datasetItemToSourceLocator(ds: DatasetItem): SourceLocator | null {
+  if (ds.kind === 'websocket' && ds.url) {
+    return { kind: 'websocket', raw: ds.url, wsUrl: ds.url };
+  }
   if (ds.kind === 'url' && ds.url) {
     const resolvedUrl = resolveBrowserHttpUrl(ds.url);
     return { kind: 'remote', raw: ds.url.trim(), resolvedUrl };

@@ -12,6 +12,11 @@ function pathnameFromUrl(trimmedUrl: string): string {
   }
 }
 
+function isLiveWebsocketUrlInput(trimmedUrl: string): boolean {
+  const t = trimmedUrl.toLowerCase();
+  return t.startsWith('ws://') || t.startsWith('wss://') || t.startsWith('foxglove://');
+}
+
 function isSupportedRemoteRecording(pathnameLower: string): boolean {
   return (
     pathnameLower.endsWith('.mcap') ||
@@ -48,6 +53,10 @@ export const RemoteRecordingUrlForm: React.FC<RemoteRecordingUrlFormProps> = ({
       setError(formatMessage({ id: 'welcome.remoteUrlErrorRequired' }));
       return;
     }
+    if (isLiveWebsocketUrlInput(trimmedUrl)) {
+      onSubmit(trimmedUrl);
+      return;
+    }
     if (!trimmedUrl.startsWith('http://') && !trimmedUrl.startsWith('https://')) {
       setError(formatMessage({ id: 'welcome.remoteUrlErrorInvalid' }));
       return;
@@ -75,9 +84,12 @@ export const RemoteRecordingUrlForm: React.FC<RemoteRecordingUrlFormProps> = ({
           disabled={isLoading}
           autoFocus
           aria-invalid={error != null}
-          aria-describedby={error ? 'remote-url-error' : undefined}
+          aria-describedby={error ? 'remote-url-error' : 'remote-url-hint'}
         />
       </div>
+      <p id="remote-url-hint" className="text-xs text-muted-foreground">
+        {formatMessage({ id: 'welcome.remoteUrlLiveHint' })}
+      </p>
       {error ? (
         <p id="remote-url-error" className="flex items-center gap-1.5 text-xs text-destructive" role="alert">
           <AlertCircle className="h-3.5 w-3.5 shrink-0" aria-hidden />

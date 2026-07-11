@@ -5,6 +5,7 @@ import { useShallow } from 'zustand/react/shallow';
 import { useIntl } from 'react-intl';
 import type { Player } from '@/core/types/player';
 import type { Time, TimeRange } from '@/core/types/ros';
+import { isLivePlayer } from '@/core/players/LivePlayer';
 import { useMessagePipeline } from '@/core/pipeline/useMessagePipeline';
 import { resolveStepMsFromModifiers } from '@/shared/utils/playbackStep';
 import { formatLocalTimestamp, formatRelativeTime, toNano } from '@/shared/utils/time';
@@ -126,6 +127,7 @@ function updateHoverChrome(
 
 export const PlaybackBar: React.FC<PlaybackBarProps> = ({ player, extensionContext, extensions = [] }) => {
   const { formatMessage } = useIntl();
+  const liveMode = isLivePlayer(player);
   const {
     startTime,
     endTime,
@@ -322,6 +324,7 @@ export const PlaybackBar: React.FC<PlaybackBarProps> = ({ player, extensionConte
   };
 
   const commitSeek = (percent: number) => {
+    if (liveMode) return;
     const st = startTimeRef.current;
     const et = endTimeRef.current;
     if (!st || !et) return;
@@ -329,6 +332,7 @@ export const PlaybackBar: React.FC<PlaybackBarProps> = ({ player, extensionConte
   };
 
   const handleTrackPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (liveMode) return;
     const st = startTimeRef.current;
     const et = endTimeRef.current;
     if (!st || !et) return;
@@ -544,6 +548,15 @@ export const PlaybackBar: React.FC<PlaybackBarProps> = ({ player, extensionConte
           </div>
 
           <div className="flex items-center justify-center gap-1.5">
+            {liveMode ? (
+              <span
+                data-testid="playback-live-badge"
+                className="mr-1 rounded-full bg-destructive/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-destructive"
+                title={formatMessage({ id: 'playback.live.hint' })}
+              >
+                {formatMessage({ id: 'playback.live.badge' })}
+              </span>
+            ) : null}
             <Button
               type="button"
               variant="ghost"
@@ -552,6 +565,7 @@ export const PlaybackBar: React.FC<PlaybackBarProps> = ({ player, extensionConte
               aria-label={formatMessage({ id: 'playback.stepBack.aria' })}
               title={formatMessage({ id: 'playback.stepBack.title' })}
               onClick={(e) => handleStep(-1, e)}
+              disabled={liveMode}
             >
               <SkipBack size={18} strokeWidth={2} />
             </Button>
@@ -576,6 +590,7 @@ export const PlaybackBar: React.FC<PlaybackBarProps> = ({ player, extensionConte
               aria-label={formatMessage({ id: 'playback.stepForward.aria' })}
               title={formatMessage({ id: 'playback.stepForward.title' })}
               onClick={(e) => handleStep(1, e)}
+              disabled={liveMode}
             >
               <SkipForward size={18} strokeWidth={2} />
             </Button>
