@@ -61,6 +61,7 @@ https://rosview.com?url=file://run.mcap
 https://rosview.com?url=folder://MyDataset
 https://rosview.com?url=sample://franka_stack
 https://rosview.com?url=https://your-server.com/recording.mcap&theme=dark&language=zh
+http://localhost:5173/?url=ws://localhost:8765   # 实时 foxglove_bridge
 ```
 
 远程 manifest 与多 URL 请在 npm 集成时使用 `fileManifest` / `urls` props。

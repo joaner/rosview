@@ -62,6 +62,7 @@ https://rosview.com?url=file://run.mcap
 https://rosview.com?url=folder://MyDataset
 https://rosview.com?url=sample://franka_stack
 https://rosview.com?url=https://your-server.com/recording.mcap&theme=dark&language=zh
+http://localhost:5173/?url=ws://localhost:8765   # live foxglove_bridge
 ```
 
 Remote manifests and multiple URLs are supported via the `fileManifest` / `urls` props when embedding the npm package.
