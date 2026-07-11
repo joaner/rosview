@@ -64,14 +64,24 @@ sudo apt update
 sudo apt install -y ros-humble-ros-base ros-humble-foxglove-bridge ros-humble-demo-nodes-cpp
 ```
 
-### Run bridge + demo publisher
+### Run bridge + demo publishers
+
+One-shot (recommended for local e2e):
+
+```bash
+./scripts/live-ros-stack.sh start      # foxglove_bridge + /chatter + image + joints
+./scripts/live-ros-stack.sh preflight  # exit 0 when topics are present
+./scripts/live-ros-stack.sh stop
+```
+
+Manual:
 
 ```bash
 source /opt/ros/humble/setup.bash
-# Terminal A — bridge (default port 8765)
 ros2 launch foxglove_bridge foxglove_bridge_launch.xml port:=8765
-# Terminal B — sample topic
-ros2 run demo_nodes_cpp talker
+# other terminal
+python3 scripts/live_ros_publishers.py
+# or: ros2 run demo_nodes_cpp talker
 ```
 
 ### Open in ROSView
@@ -86,6 +96,16 @@ Also accepted: `wss://…`, `foxglove://host:port` (normalized to `ws://host:por
 
 Panels subscribe on demand; PlaybackBar shows a **LIVE** badge (seek/step disabled). Offline
 recording open paths are unchanged.
+
+### Live Playwright e2e
+
+```bash
+./scripts/live-ros-stack.sh start
+ROSVIEW_LIVE_URL=ws://127.0.0.1:8765 npm run test:e2e -- tests/live-foxglove.spec.ts
+```
+
+When ROS/bridge is missing, the suite **skips** (documented gate). Force skip: `ROSVIEW_LIVE_SKIP=1`.
+Optional evidence dir: `ROSVIEW_LIVE_EVIDENCE_DIR=…`.
 
 ## Performance gates
 

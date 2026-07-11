@@ -36,6 +36,7 @@ export class FoxgloveBridgeAdapter implements LiveBridgeAdapter {
   private _subscriptionIdByChannelId = new Map<number, number>();
   private _nextSubscriptionId = 1;
   private _messageListeners = new Set<(event: MessageEvent) => void>();
+  private _topicsChangedListeners = new Set<(topics: TopicInfo[], datatypes: RosDatatypes) => void>();
   private _capabilities: LiveBridgeCapabilities = {
     profile: 'foxglove',
     canSubscribe: true,
@@ -151,6 +152,13 @@ export class FoxgloveBridgeAdapter implements LiveBridgeAdapter {
     };
   }
 
+  onTopicsChanged(listener: (topics: TopicInfo[], datatypes: RosDatatypes) => void): Unsubscribe {
+    this._topicsChangedListeners.add(listener);
+    return () => {
+      this._topicsChangedListeners.delete(listener);
+    };
+  }
+
   /** Latest server time if the bridge publishes time messages. */
   getServerTime(): Time | undefined {
     if (this._serverTimeNs == null) return undefined;
@@ -199,6 +207,7 @@ export class FoxgloveBridgeAdapter implements LiveBridgeAdapter {
       }
       this._gotAdvertise = true;
       this._maybeReady();
+      this._notifyTopicsChanged();
     });
 
     this._client.on('unadvertise', (channelIds) => {
@@ -213,6 +222,7 @@ export class FoxgloveBridgeAdapter implements LiveBridgeAdapter {
           this._subscriptionIdByChannelId.delete(id);
         }
       }
+      this._notifyTopicsChanged();
     });
 
     this._client.on('message', (data) => {
@@ -242,20 +252,25 @@ export class FoxgloveBridgeAdapter implements LiveBridgeAdapter {
   }
 
   private _maybeReady(): void {
-    // Ready once we have serverInfo. Advertise may be empty if no topics yet.
-    if (!this._gotServerInfo) return;
-    // Prefer waiting for at least one advertise batch so topics populate;
-    // if serverInfo already arrived, also accept after a short microtask when
-    // advertise already came or is empty (bridge still valid).
-    if (!this._gotAdvertise) {
-      // Many bridges send advertise immediately after serverInfo; if not, still
-      // resolve after serverInfo so the UI can show an empty topic list.
-      // Require both flags: if advertise never comes, initialize timeout handles it
-      // unless we resolve on serverInfo alone. Resolve on serverInfo alone for robustness.
-    }
+    // Wait for serverInfo + first advertise so the initial topic list is populated
+    // (foxglove_bridge sends advertise immediately after serverInfo).
+    if (!this._gotServerInfo || !this._gotAdvertise) return;
     this._readyResolve?.();
     this._readyResolve = null;
     this._readyReject = null;
+  }
+
+  private _notifyTopicsChanged(): void {
+    if (this._topicsChangedListeners.size === 0) return;
+    const topics = this._buildTopics();
+    const datatypes = this._buildDatatypes();
+    for (const listener of this._topicsChangedListeners) {
+      try {
+        listener(topics, datatypes);
+      } catch (err) {
+        console.warn('[FoxgloveBridgeAdapter] onTopicsChanged listener error', err);
+      }
+    }
   }
 
   private _ingestChannel(ch: FoxgloveChannel): void {

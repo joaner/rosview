@@ -44,6 +44,7 @@ export class LivePlayer implements Player {
   private _samplingFps = DEFAULT_SAMPLING_FPS;
   private _lastPipelineEmitMs = 0;
   private _unsubMessage: (() => void) | undefined;
+  private _unsubTopics: (() => void) | undefined;
   private _closed = false;
   private _pendingMessages: MessageEvent[] = [];
   private _flushScheduled = false;
@@ -84,6 +85,12 @@ export class LivePlayer implements Player {
 
       this._unsubMessage = this._adapter.onMessage((event) => {
         this._onLiveMessage(event);
+      });
+      this._unsubTopics = this._adapter.onTopicsChanged?.((topics, datatypes) => {
+        if (this._closed) return;
+        this._topics = topics;
+        this._datatypes = datatypes;
+        this._emitState();
       });
 
       // Apply any subscriptions panels registered during initialize.
@@ -208,6 +215,8 @@ export class LivePlayer implements Player {
     this._closed = true;
     this._unsubMessage?.();
     this._unsubMessage = undefined;
+    this._unsubTopics?.();
+    this._unsubTopics = undefined;
     this._adapter.close();
     this._timeSubscribers.clear();
     this._pendingMessages = [];
@@ -269,6 +278,7 @@ export class LivePlayer implements Player {
     if (!known) {
       this._topics = [...this._topics, { name: event.topic, type: event.schemaName }];
       this._topics.sort((a, b) => a.name.localeCompare(b.name));
+      this._emitState();
     }
 
     this._currentTime = event.receiveTime;
