@@ -13,10 +13,17 @@ export type PreparedImageWorkerFrame = {
   transfer: Transferable[];
 };
 
-export function toWorkerFrame(messageEvent: RosMessageEvent): PreparedImageWorkerFrame | null {
+export interface ToWorkerFrameOptions {
+  transferOwnership?: boolean;
+}
+
+export function toWorkerFrame(
+  messageEvent: RosMessageEvent,
+  options: ToWorkerFrameOptions = {},
+): PreparedImageWorkerFrame | null {
   const message = messageEvent.message;
   if (isCompressedFrameMessage(message)) {
-    const payload = prepareImageWorkerBytes(message.data);
+    const payload = prepareImageWorkerBytes(message.data, options);
     if (!payload) {
       return null;
     }
@@ -31,7 +38,7 @@ export function toWorkerFrame(messageEvent: RosMessageEvent): PreparedImageWorke
     };
   }
   if (isRawImageMessage(message)) {
-    const payload = prepareImageWorkerBytes(message.data);
+    const payload = prepareImageWorkerBytes(message.data, options);
     if (!payload) {
       return null;
     }

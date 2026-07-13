@@ -200,7 +200,7 @@ describe('prepareImageWorkerBytes', () => {
     const input = new Uint8Array(shared);
     input.set([1, 2, 3, 4]);
 
-    const prepared = prepareImageWorkerBytes(input);
+    const prepared = prepareImageWorkerBytes(input, { transferOwnership: true });
 
     expect(prepared).not.toBeNull();
     expect(prepared!.data).not.toBe(input);
@@ -224,11 +224,22 @@ describe('prepareImageWorkerBytes', () => {
     expect(Array.from(prepared!.data)).toEqual([1, 2, 3]);
   });
 
-  it('copies sliced ArrayBuffer-backed views into a compact transfer buffer', () => {
+  it('transfers a full ArrayBuffer-backed view when ownership is explicitly handed off', () => {
+    const input = new Uint8Array([4, 5, 6]);
+
+    const prepared = prepareImageWorkerBytes(input, { transferOwnership: true });
+
+    expect(prepared).not.toBeNull();
+    expect(prepared!.data).toBe(input);
+    expect(prepared!.data.buffer).toBe(input.buffer);
+    expect(prepared!.transfer).toEqual([input.buffer]);
+  });
+
+  it('copies sliced ArrayBuffer-backed views into a compact transfer buffer even with ownership', () => {
     const input = new Uint8Array(new ArrayBuffer(8), 2, 3);
     input.set([7, 8, 9]);
 
-    const prepared = prepareImageWorkerBytes(input);
+    const prepared = prepareImageWorkerBytes(input, { transferOwnership: true });
 
     expect(prepared).not.toBeNull();
     expect(prepared!.data).not.toBe(input);

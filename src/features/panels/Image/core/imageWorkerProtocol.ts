@@ -1,6 +1,7 @@
 import type { Time } from '@/core/types/ros';
 import type { RawImageDecodeOptions } from './imageColorMode';
 import type { ImageSurfaceStatus } from './imageTypes';
+import type { H264PressureMode } from './h264Backpressure';
 
 export interface ImageRenderOptions {
   /** CSS color string (e.g. `#ff0000`) used to fill letterbox/pillarbox and idle canvas. */
@@ -64,7 +65,22 @@ export type ImageRenderWorkerRequest =
       type: 'dispose';
     };
 
-export type ImageRenderWorkerEvent = {
-  type: 'status';
-  status: ImageSurfaceStatus;
-};
+export interface ImageRenderMetrics {
+  pressureMode: H264PressureMode;
+  queueFrames: number;
+  queueSpanMs: number;
+  decodeMs: number;
+  droppedFrames: number;
+  renderedFrames: number;
+  codec?: string;
+}
+
+export type ImageRenderWorkerEvent =
+  | {
+      type: 'status';
+      status: ImageSurfaceStatus;
+    }
+  | {
+      type: 'metrics';
+      metrics: ImageRenderMetrics;
+    };
