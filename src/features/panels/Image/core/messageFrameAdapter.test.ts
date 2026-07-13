@@ -56,4 +56,25 @@ describe('messageFrameAdapter', () => {
     expect(isH264MessageEvent(makeCompressedVideoEvent(payload))).toBe(true);
     expect(isH264MessageEvent(makeCompressedVideoEvent(payload, 'vp9'))).toBe(false);
   });
+
+  it('keeps borrowed message payloads intact by default', () => {
+    const payload = new Uint8Array([1, 2, 3]);
+
+    const prepared = toWorkerFrame(makeCompressedImageEvent(payload));
+
+    expect(prepared).not.toBeNull();
+    expect(prepared!.frame.data).not.toBe(payload);
+    expect(prepared!.frame.data.buffer).not.toBe(payload.buffer);
+    expect(prepared!.transfer).toEqual([prepared!.frame.data.buffer]);
+  });
+
+  it('hands off full-span payloads only when ownership is explicit', () => {
+    const payload = new Uint8Array([1, 2, 3]);
+
+    const prepared = toWorkerFrame(makeCompressedImageEvent(payload), { transferOwnership: true });
+
+    expect(prepared).not.toBeNull();
+    expect(prepared!.frame.data).toBe(payload);
+    expect(prepared!.transfer).toEqual([payload.buffer]);
+  });
 });

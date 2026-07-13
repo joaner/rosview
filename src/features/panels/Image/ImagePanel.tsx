@@ -6,6 +6,7 @@ import { scheduleFrame } from '@/shared/utils/rafScheduler';
 import { toNano } from '@/shared/utils/time';
 import type { RawImageDecodeOptions } from './core/imageColorMode';
 import type {
+  ImageRenderMetrics,
   ImageRenderOptions,
   ImageRenderWorkerEvent,
   ImageRenderWorkerRequest,
@@ -74,6 +75,7 @@ export const ImagePanel: React.FC<ImagePanelProps> = (props) => {
   const lastUiStatusRef = useRef<ImageSurfaceStatus>({ phase: 'idle' });
   const h264ModeRef = useRef(false);
   const [status, setStatus] = useState<ImageSurfaceStatus>({ phase: 'idle' });
+  const [metrics, setMetrics] = useState<ImageRenderMetrics | null>(null);
   const mainConsumerId = `${panelId}:image-main`;
   const h264ConsumerId = `${panelId}:image-main-h264`;
 
@@ -124,6 +126,10 @@ export const ImagePanel: React.FC<ImagePanelProps> = (props) => {
 
     worker.onmessage = (event) => {
       const data = event.data as ImageRenderWorkerEvent;
+      if (data.type === 'metrics') {
+        setMetrics(data.metrics);
+        return;
+      }
       if (data.type !== 'status') {
         return;
       }
@@ -181,6 +187,7 @@ export const ImagePanel: React.FC<ImagePanelProps> = (props) => {
         transferredCanvasRef.current = null;
         lastUiStatusRef.current = { phase: 'idle' };
         setStatus({ phase: 'idle' });
+        setMetrics(null);
         workerDisposeTimerRef.current = null;
       }, 0);
     };
@@ -198,6 +205,7 @@ export const ImagePanel: React.FC<ImagePanelProps> = (props) => {
       return;
     }
     h264ModeRef.current = false;
+    setMetrics(null);
     worker.postMessage({ type: 'reset' } satisfies ImageRenderWorkerRequest);
     player.registerHighFrequencyConsumer(mainConsumerId, {
       topic,
@@ -304,6 +312,9 @@ export const ImagePanel: React.FC<ImagePanelProps> = (props) => {
       className="flex flex-col h-full overflow-hidden relative"
       style={{ background: backgroundColor }}
       data-testid="image-panel"
+      data-h264-pressure={metrics?.pressureMode}
+      data-h264-queue-frames={metrics?.queueFrames}
+      data-h264-dropped-frames={metrics?.droppedFrames}
     >
       <PanelTopicBar className="border-zinc-800 bg-zinc-950">
         <TopicQuickPicker
@@ -366,7 +377,9 @@ function isUiStatusEqual(a: ImageSurfaceStatus, b: ImageSurfaceStatus): boolean 
 }
 
 function postImageFrame(worker: Worker, messageEvent: RosMessageEvent): void {
-  const next = toWorkerFrame(messageEvent);
+  // High-frequency consumers receive a payload dedicated to this consumer, so
+  // a full-span ArrayBuffer can be handed directly to the render worker.
+  const next = toWorkerFrame(messageEvent, { transferOwnership: true });
   if (!next) {
     return;
   }

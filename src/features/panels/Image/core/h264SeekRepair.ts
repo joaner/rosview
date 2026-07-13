@@ -1,14 +1,15 @@
 import type { Player } from '@/core/types/player';
 import type { MessageEvent as RosMessageEvent, Time } from '@/core/types/ros';
 import { addMs, toNano } from '@/shared/utils/time';
-import { getH264ChunkType } from './h264';
+import { containsH264IdrNal } from './h264';
+import { selectLatestCompleteH264Gop } from './h264Queue';
 import type { ImageRenderWorkerRequest } from './imageWorkerProtocol';
 import { getH264MessagePayload, isH264MessageEvent, toWorkerFrame } from './messageFrameAdapter';
 
 /** Progressive lookback windows when searching for a keyframe before a seek target. */
 export const H264_SEEK_WINDOWS_MS = [2000, 5000, 10_000, 30_000] as const;
 
-/** Cap frames fed during seek repair so high-FPS streams stay responsive. */
+/** Maximum frame messages posted for one seek repair. */
 export const H264_SEEK_MAX_FRAMES = 180;
 
 export function findLatestH264KeyFrameIndex(messages: RosMessageEvent[]): number {
@@ -18,7 +19,7 @@ export function findLatestH264KeyFrameIndex(messages: RosMessageEvent[]): number
       continue;
     }
     const payload = getH264MessagePayload(event);
-    if (payload && getH264ChunkType(payload) === 'key') {
+    if (payload && containsH264IdrNal(payload)) {
       return i;
     }
   }
@@ -43,12 +44,28 @@ export function selectH264SeekRepairFrames(
       return 0;
     });
 
-  const keyIndex = findLatestH264KeyFrameIndex(h264Messages);
-  if (keyIndex < 0) {
+  const candidates = h264Messages.flatMap((event) => {
+    const data = getH264MessagePayload(event);
+    return data ? [{ event, data }] : [];
+  });
+  if (findLatestH264KeyFrameIndex(h264Messages) < 0) {
     return [];
   }
 
-  return h264Messages.slice(keyIndex).slice(-H264_SEEK_MAX_FRAMES);
+  return limitH264SeekRepairFrames(selectLatestCompleteH264Gop(candidates).frames)
+    .map(({ event }) => event);
+}
+
+export function limitH264SeekRepairFrames<T extends { data: Uint8Array }>(
+  frames: readonly T[],
+): T[] {
+  const idrIndex = frames.findIndex(({ data }) => containsH264IdrNal(data));
+  if (idrIndex < 0 || idrIndex >= H264_SEEK_MAX_FRAMES) {
+    return [];
+  }
+  // Keep the decodable prefix from config/real IDR forward. Taking the tail
+  // would discard dependencies and turn a delta into an invalid access point.
+  return frames.slice(0, H264_SEEK_MAX_FRAMES);
 }
 
 export async function repairH264Seek(

@@ -51,13 +51,32 @@ export function snapshotBytes(data: unknown): Uint8Array<ArrayBuffer> | null {
   return copy;
 }
 
-export function prepareImageWorkerBytes(data: unknown): { data: Uint8Array; transfer: Transferable[] } | null {
+export interface PrepareImageWorkerBytesOptions {
+  /**
+   * The caller gives the worker exclusive ownership of this payload. Only a
+   * full-span ArrayBuffer view can be transferred without first copying.
+   */
+  transferOwnership?: boolean;
+}
+
+export function prepareImageWorkerBytes(
+  data: unknown,
+  options: PrepareImageWorkerBytesOptions = {},
+): { data: Uint8Array; transfer: Transferable[] } | null {
   if (!(data instanceof Uint8Array)) {
     return null;
   }
-  // Always hand the render worker an owned ArrayBuffer. SAB-backed views may
-  // point into the playback ring, whose slot can be reused before the worker's
-  // postMessage is processed.
+  if (
+    options.transferOwnership === true &&
+    data.buffer instanceof ArrayBuffer &&
+    data.byteOffset === 0 &&
+    data.byteLength === data.buffer.byteLength
+  ) {
+    return { data, transfer: [data.buffer] };
+  }
+  // Borrowed payloads must not be detached. SAB-backed views and sliced views
+  // may also alias storage that remains in use, so compact-copy them even when
+  // ownership transfer was requested.
   const copy = new Uint8Array(data.byteLength);
   copy.set(data);
   return { data: copy, transfer: [copy.buffer] };
