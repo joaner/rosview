@@ -135,7 +135,7 @@ export class McapIndexedIterableSource implements IIterableSource {
     this._start = fromNano(startTime ?? 0n);
     this._end = fromNano(endTime ?? 0n);
 
-    console.log("McapIndexedIterableSource: initialized", {
+    console.debug("McapIndexedIterableSource: initialized", {
       topicCount: topics.length,
       startTime: this._start,
       endTime: this._end

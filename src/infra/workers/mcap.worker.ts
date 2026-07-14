@@ -63,7 +63,7 @@ class McapWorkerImpl implements IWorkerSerializedSourceWorker {
       enabled: args.workerPerf === true,
       label: "mcap",
     });
-    console.log("McapWorker: initialize starting", args);
+    console.debug("McapWorker: initialize starting", args);
     try {
       let rawReadable: IReadable;
       const url = typeof args.url === 'string' ? args.url : undefined;
