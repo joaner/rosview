@@ -1016,6 +1016,9 @@ export class IterablePlayer implements Player {
         if (!this._isPlaybackEpochCurrent(loopEpoch)) {
           return;
         }
+        // Match seek: notify rewind first so H264 panels can reset/wait for IDR
+        // before backfill or live frames arrive after configure().
+        this._notifyTimeSubscribers(this._currentTime);
         const topics = this._currentTopics();
         if (topics.length > 0) {
           const messages = await this._source.getBackfillMessages({ time: this._currentTime, topics });
@@ -1024,7 +1027,6 @@ export class IterablePlayer implements Player {
           }
           this._distributeMessages(messages, this._currentTime);
         }
-        this._notifyTimeSubscribers(this._currentTime);
         this._emitState();
         this._scheduleNextTick();
         return;

@@ -789,9 +789,10 @@ class ImageRenderWorkerRuntime {
   #resetH264RuntimeState(): void {
     this.#h264Pressure = initialH264PressureState();
     this.#h264DecodeMs = 0;
-    this.#h264WaitingForIdr = false;
-    this.#h264ConfigBeforeIdr = [];
-    this.#h264RecentConfig = [];
+    // After close()/configure(), WebCodecs requires the next VCL chunk to be an
+    // IDR. Keep recent SPS/PPS so a bare IDR can still reconfigure the decoder.
+    this.#h264WaitingForIdr = true;
+    this.#h264ConfigBeforeIdr = [...this.#h264RecentConfig];
     this.#h264NeedsResync = false;
     this.#lastH264RenderAt = -Infinity;
     this.#lastH264BitmapAt = -Infinity;

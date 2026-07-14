@@ -63,7 +63,7 @@ export class WorkerSerializedSource implements ISourceHandle {
   }
 
   async initialize(args: Record<string, unknown>): Promise<Initialization> {
-    console.log("WorkerSerializedSource: calling initialize");
+    console.debug("WorkerSerializedSource: calling initialize");
     try {
       // Ensure all objects passed to Comlink are plain objects
       const sanitizedArgs: Record<string, unknown> = {};
@@ -86,7 +86,7 @@ export class WorkerSerializedSource implements ISourceHandle {
       const result = await this._raceWorkerFailure(
         this._wrapAbortableInitialize(this._remote.initialize(sanitizedArgs)),
       );
-      console.log("WorkerSerializedSource: initialize result received");
+      console.debug("WorkerSerializedSource: initialize result received");
       return result;
     } catch (e) {
       console.error("WorkerSerializedSource: initialize failed", e);
