@@ -36,6 +36,23 @@ describe('parseSourceLocator', () => {
       raw: 'https://x.example/a.mcap',
     });
   });
+
+  it('parses live Foxglove WebSocket URLs', () => {
+    expect(parseSourceLocator('ws://localhost:8765')).toEqual({
+      kind: 'websocket',
+      raw: 'ws://localhost:8765',
+      wsUrl: 'ws://localhost:8765',
+    });
+    expect(parseSourceLocator('foxglove://127.0.0.1:8765')).toEqual({
+      kind: 'websocket',
+      raw: 'foxglove://127.0.0.1:8765',
+      wsUrl: 'ws://127.0.0.1:8765',
+    });
+    expect(parseSourceLocator('wss://robot.example:8765')).toMatchObject({
+      kind: 'websocket',
+      wsUrl: 'wss://robot.example:8765',
+    });
+  });
 });
 
 describe('serializeSourceLocator', () => {

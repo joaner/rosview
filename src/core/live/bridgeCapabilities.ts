@@ -28,6 +28,13 @@ export interface LiveBridgeAdapter {
   subscribe(subscriptions: Subscription[]): Unsubscribe;
   subscribeHighFrequency?(consumer: HighFrequencyConsumer): Unsubscribe;
   onMessage(listener: (event: MessageEvent) => void): Unsubscribe;
+  /**
+   * Optional: notify when the advertised topic list / datatypes change after init
+   * (e.g. foxglove_bridge advertise/unadvertise).
+   */
+  onTopicsChanged?(
+    listener: (topics: TopicInfo[], datatypes: RosDatatypes) => void,
+  ): Unsubscribe;
   publish?(topic: string, schemaName: string, message: unknown): Promise<void>;
   getParameter?(name: string): Promise<unknown>;
   setParameter?(name: string, value: unknown): Promise<void>;

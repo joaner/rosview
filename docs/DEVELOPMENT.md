@@ -49,6 +49,64 @@ For remote lists in the browser during dev, prefer **same-origin** URLs, e.g.
 `http://localhost:5173/?url=/examples/test_5s.mcap`  
 so Vite serves static files and Range requests correctly.
 
+## Live ROS 2 (Foxglove WebSocket)
+
+ROSView connects to live ROS 2 graphs via the **official `foxglove_bridge`** package and the
+Foxglove WebSocket framing (subprotocols `foxglove.sdk.v1` for bridge ≥3 / SDK, with fallback
+to legacy `foxglove.websocket.v1`). Do not invent a custom bridge protocol — run the stock bridge
+on the robot (or this machine) and open the WebSocket URL in ROSView.
+
+### Install (Ubuntu 22.04 → ROS 2 Humble)
+
+```bash
+# Follow https://docs.ros.org/en/humble/Installation/Ubuntu-Install-Debs.html
+sudo apt update
+sudo apt install -y ros-humble-ros-base ros-humble-foxglove-bridge ros-humble-demo-nodes-cpp
+```
+
+### Run bridge + demo publishers
+
+One-shot (recommended for local e2e):
+
+```bash
+./scripts/live-ros-stack.sh start      # foxglove_bridge + /chatter + image + joints
+./scripts/live-ros-stack.sh preflight  # exit 0 when topics are present
+./scripts/live-ros-stack.sh stop
+```
+
+Manual:
+
+```bash
+source /opt/ros/humble/setup.bash
+ros2 launch foxglove_bridge foxglove_bridge_launch.xml port:=8765
+# other terminal
+python3 scripts/live_ros_publishers.py
+# or: ros2 run demo_nodes_cpp talker
+```
+
+### Open in ROSView
+
+```bash
+npm run dev
+# Welcome → URL tab, or address bar:
+# http://localhost:5173/?url=ws://localhost:8765
+```
+
+Also accepted: `wss://…`, `foxglove://host:port` (normalized to `ws://host:port`).
+
+Panels subscribe on demand; PlaybackBar shows a **LIVE** badge (seek/step disabled). Offline
+recording open paths are unchanged.
+
+### Live Playwright e2e
+
+```bash
+./scripts/live-ros-stack.sh start
+ROSVIEW_LIVE_URL=ws://127.0.0.1:8765 npm run test:e2e -- tests/live-foxglove.spec.ts
+```
+
+When ROS/bridge is missing, the suite **skips** (documented gate). Force skip: `ROSVIEW_LIVE_SKIP=1`.
+Optional evidence dir: `ROSVIEW_LIVE_EVIDENCE_DIR=…`.
+
 ## Performance gates
 
 ### Manual baseline (recommended for PR notes)

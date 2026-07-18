@@ -62,39 +62,45 @@ export function useSpaUrlBootstrap(
   const genRef = useRef(0);
   const lastBootstrappedUrlRef = useRef<string | null>(null);
 
-  const run = useEffectEvent(async (loc: Exclude<SourceLocator, { kind: 'remote' }>, gen: number) => {
-    handlers.onManualOpenHint(null);
-    if (loc.kind === 'sample') {
-      if (!getSampleDatasetsManifestUrl()) {
-        handlers.onSampleManifestNotConfigured();
+  const run = useEffectEvent(
+    async (
+      loc: Extract<SourceLocator, { kind: 'sample' | 'local_file' | 'local_folder' }>,
+      gen: number,
+    ) => {
+      handlers.onManualOpenHint(null);
+      if (loc.kind === 'sample') {
+        if (!getSampleDatasetsManifestUrl()) {
+          handlers.onSampleManifestNotConfigured();
+          return;
+        }
+        const samples = await loadSampleDatasets();
+        if (genRef.current !== gen) return;
+        const found = samples.find((s) => s.id === loc.sampleId);
+        if (!found) {
+          handlers.onSampleNotFound(loc.sampleId);
+          return;
+        }
+        await handlers.onSelectSample(found);
         return;
       }
-      const samples = await loadSampleDatasets();
-      if (genRef.current !== gen) return;
-      const found = samples.find((s) => s.id === loc.sampleId);
-      if (!found) {
-        handlers.onSampleNotFound(loc.sampleId);
-        return;
-      }
-      await handlers.onSelectSample(found);
-      return;
-    }
 
-    const row = await getLatestReplayableHistoryByLocalLocator(loc);
-    if (genRef.current !== gen) return;
-    if (!row) {
-      handlers.onNoLocalHistoryMatch(loc);
-      return;
-    }
-    await handlers.onReplayHistoryRow(row.id);
-  });
+      const row = await getLatestReplayableHistoryByLocalLocator(loc);
+      if (genRef.current !== gen) return;
+      if (!row) {
+        handlers.onNoLocalHistoryMatch(loc);
+        return;
+      }
+      await handlers.onReplayHistoryRow(row.id);
+    },
+  );
 
   useEffect(() => {
     if (!active) return;
     const raw = url?.trim();
     if (!raw) return;
     const loc = parseSourceLocator(raw);
-    if (!loc || loc.kind === 'remote') return;
+    // Remote HTTP and live WebSocket locators are loaded via normalizeRosViewSources / props.url.
+    if (!loc || loc.kind === 'remote' || loc.kind === 'websocket') return;
     if (lastBootstrappedUrlRef.current === raw) return;
     lastBootstrappedUrlRef.current = raw;
 

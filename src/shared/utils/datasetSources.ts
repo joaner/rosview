@@ -1,11 +1,13 @@
 /**
- * Unified dataset list for ROSView: local files + remote URLs.
+ * Unified dataset list for ROSView: local files + remote URLs + live WebSockets.
  * Merge order: `files` → `file` → `urls` → `url` (files before URLs).
  */
 
+import { isLiveWebsocketUrl, normalizeLiveWebsocketUrl } from '@/core/live/liveUrl';
+
 export type DatasetItem = {
   id: string;
-  kind: 'file' | 'url';
+  kind: 'file' | 'url' | 'websocket';
   /** Display label (file basename or URL tail) */
   name: string;
   file?: File;
@@ -139,6 +141,15 @@ function makeFileDataset(file: File): DatasetItem {
 
 function makeUrlDataset(url: string, sizeBytes?: number): DatasetItem {
   const trimmed = url.trim();
+  if (isLiveWebsocketUrl(trimmed)) {
+    const wsUrl = normalizeLiveWebsocketUrl(trimmed);
+    return {
+      id: `ws:${wsUrl}`,
+      kind: 'websocket',
+      name: wsUrl,
+      url: wsUrl,
+    };
+  }
   const name = trimmed.split('/').pop() || trimmed;
   return {
     id: `url:${trimmed}`,
@@ -197,6 +208,15 @@ export function parseRemoteDatasetListJson(json: unknown): FileListItem[] {
 export function datasetItemsFromListItems(items: FileListItem[]): DatasetItem[] {
   return items.map((row, i) => {
     const u = row.url.trim();
+    if (isLiveWebsocketUrl(u)) {
+      const wsUrl = normalizeLiveWebsocketUrl(u);
+      return {
+        id: `ws:${wsUrl}:${i}`,
+        kind: 'websocket' as const,
+        name: row.name?.trim() || wsUrl,
+        url: wsUrl,
+      };
+    }
     const name = row.name?.trim() || u.split('/').pop() || u;
     return {
       id: `url:${u}:${i}`,

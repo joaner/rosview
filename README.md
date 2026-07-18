@@ -8,7 +8,7 @@
 
 > High-performance, browser-native robotics data visualization. Built from scratch on React 19, Vite 8, and Web Workers.
 
-Supports **MCAP**, **ROS 1 bag**, **ROS 2 db3**, **HDF5**, and **BVH** files. Available as a standalone SPA (zero-install, runs at [rosview.com](https://rosview.com)) or as an embeddable npm package.
+Supports **MCAP**, **ROS 1 bag**, **ROS 2 db3**, **HDF5**, and **BVH** recordings, plus **live ROS 2** via the official Foxglove WebSocket bridge (`foxglove_bridge`). Available as a standalone SPA (zero-install, runs at [rosview.com](https://rosview.com)) or as an embeddable npm package.
 
 <p align="center">
   <a href="https://rosview.com">
@@ -38,6 +38,7 @@ Supports **MCAP**, **ROS 1 bag**, **ROS 2 db3**, **HDF5**, and **BVH** files. Av
 ## Features
 
 - **Multi-format** — MCAP · ROS 1 `.bag` · ROS 2 `.db3` · HDF5 `.h5/.hdf5` · BVH skeletal animation
+- **Live ROS 2** — connect to `foxglove_bridge` over Foxglove WebSocket (`ws://` / `wss://`); no custom protocol
 - **Zero-copy parsing** — dedicated Web Workers + Comlink; main thread is never blocked
 - **HTTP Range streaming** — load remote files without downloading them in full
 - **Multi-panel layout** — draggable, dockable panels powered by DockView
@@ -61,6 +62,7 @@ https://rosview.com?url=file://run.mcap
 https://rosview.com?url=folder://MyDataset
 https://rosview.com?url=sample://franka_stack
 https://rosview.com?url=https://your-server.com/recording.mcap&theme=dark&language=zh
+http://localhost:5173/?url=ws://localhost:8765   # live foxglove_bridge
 ```
 
 Remote manifests and multiple URLs are supported via the `fileManifest` / `urls` props when embedding the npm package.

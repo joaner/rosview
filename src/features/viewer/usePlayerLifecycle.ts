@@ -2,7 +2,9 @@ import { useEffect, useRef, useState } from 'react';
 import { isWorkerSourceCancelledError } from '@/infra/workers/WorkerSerializedSource';
 import { CombinedSourceProxy, type CombinedSourceMember } from '@/infra/workers/CombinedSourceProxy';
 import { IterablePlayer } from '@/core/players/IterablePlayer';
+import { LivePlayer } from '@/core/players/LivePlayer';
 import { MinimalPlayer } from '@/core/players/MinimalPlayer';
+import { FoxgloveBridgeAdapter } from '@/core/live/foxglove/FoxgloveBridgeAdapter';
 import type { Player } from '@/core/types/player';
 import { useMessagePipelineStore } from '@/core/pipeline/store';
 import { readPreferences } from '@/core/preferences/readWritePreferences';
@@ -131,7 +133,7 @@ export function usePlayerLifecycle(props: RosViewerProps, args: UsePlayerLifecyc
     }
 
     let cancelled = false;
-    let createdPlayer: IterablePlayer | null = null;
+    let createdPlayer: Player | null = null;
 
     const run = async () => {
       setLastLoadError(null);
@@ -144,6 +146,44 @@ export function usePlayerLifecycle(props: RosViewerProps, args: UsePlayerLifecyc
       for (const idx of order) {
         if (cancelled) return;
         const group = groupsLive[idx];
+
+        // Live Foxglove WebSocket connection (single-member websocket groups).
+        const wsMember = group.members.find((m) => m.kind === 'websocket' && m.url);
+        if (wsMember?.url) {
+          const adapter = new FoxgloveBridgeAdapter({ url: wsMember.url });
+          const livePlayer = new LivePlayer({ adapter, label: wsMember.url });
+          createdPlayer = livePlayer;
+          if (!cancelled) setPlayer(livePlayer);
+          try {
+            await livePlayer.initialize();
+            if (cancelled) {
+              livePlayer.close();
+              createdPlayer = null;
+              return;
+            }
+            setLoadedGroupId(group.groupId !== activeId ? group.groupId : null);
+            clearOpenFeedback();
+            if (urlState === 'spa') {
+              spaSampleLocatorParamRef.current = null;
+              const loc = datasetItemToSourceLocator(wsMember);
+              if (loc) {
+                pushSpaUrlParam(serializeSourceLocator(loc));
+              }
+            }
+            return;
+          } catch (err) {
+            if (cancelled) {
+              livePlayer.close();
+              createdPlayer = null;
+              return;
+            }
+            lastErr = err;
+            livePlayer.close();
+            createdPlayer = null;
+            if (!cancelled) setPlayer(null);
+            continue;
+          }
+        }
 
         let preparedMembers: CombinedSourceMember[];
         try {

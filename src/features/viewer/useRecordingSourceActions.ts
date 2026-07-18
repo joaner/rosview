@@ -25,6 +25,7 @@ import {
   collectRosRecordingFileHandlesFromDataTransfer,
 } from '@/shared/utils/collectDragFileHandles';
 import { pickRosRecordingFiles } from '@/shared/utils/openRosRecordingFilePicker';
+import { isLiveWebsocketUrl, normalizeLiveWebsocketUrl } from '@/core/live/liveUrl';
 import { resolveBrowserHttpUrl } from '@/shared/utils/resolveBrowserHttpUrl';
 import { pushSpaUrlParam, serializeSourceLocator } from '@/shared/utils/sourceLocator';
 import type { createRosViewIntl } from '@/shared/intl/createRosViewIntl';
@@ -326,6 +327,41 @@ export function useRecordingSourceActions(props: RosViewerProps, args: UseRecord
 
       const trimmed = rawUrl.trim();
       if (!trimmed) return;
+
+      // Live Foxglove WebSocket bridge (ws:// / wss:// / foxglove://).
+      if (isLiveWebsocketUrl(trimmed)) {
+        const wsUrl = normalizeLiveWebsocketUrl(trimmed);
+        setRemoteUrlBusy(true);
+        clearOpenFeedback();
+        try {
+          if (urlState === 'spa') {
+            spaSampleLocatorParamRef.current = null;
+          }
+          setExtraDatasets((prev) =>
+            mergeDatasetLists(prev, [
+              {
+                id: `ws:${wsUrl}`,
+                kind: 'websocket',
+                name: wsUrl,
+                url: wsUrl,
+              },
+            ]),
+          );
+          setActiveId(`ws:${wsUrl}`);
+          setLoadedGroupId(null);
+          await recordHistoryEntry({
+            kind: 'url',
+            displayName: wsUrl,
+            url: wsUrl,
+          });
+        } catch (e) {
+          showOpenError(errorMessageFromUnknown(e, offlineIntl.formatMessage({ id: 'errors.loadFailed' })));
+        } finally {
+          setRemoteUrlBusy(false);
+        }
+        return;
+      }
+
       const resolved = resolveBrowserHttpUrl(trimmed);
       const pathLower = remotePathnameLower(resolved);
       const isRemoteTar =

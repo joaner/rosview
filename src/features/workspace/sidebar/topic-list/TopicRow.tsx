@@ -61,6 +61,9 @@ export const TopicRow: React.FC<TopicRowProps> = ({ topic, isSelected, onSelect 
 
   return (
     <div
+      data-testid="sidebar-topic-row"
+      data-topic-name={topic.name}
+      data-topic-type={topic.type}
       className={cn(
         'flex w-full flex-col border-b border-border/50 text-left text-xs transition-colors',
         'hover:bg-accent/35',

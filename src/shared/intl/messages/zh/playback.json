@@ -15,5 +15,7 @@
   "playback.samplingFps.aria": "采样帧率",
   "playback.loop.aria": "循环播放模式",
   "playback.loop.loop": "循环",
-  "playback.loop.once": "单次"
+  "playback.loop.once": "单次",
+  "playback.live.badge": "实时",
+  "playback.live.hint": "实时流 — 不支持拖动进度"
 }
